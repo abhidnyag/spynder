@@ -39,6 +39,9 @@ export const typeDefs = gql`
     imageUrl: String
     previewUrl: String
     trailerUrl: String
+    "Movies/series only — director (or series creator) and top-billed cast."
+    director: String
+    cast: [String!]
     "Whether the signed-in user has favourited this suggestion."
     isFavorite: Boolean!
   }

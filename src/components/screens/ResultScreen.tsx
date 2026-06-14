@@ -51,7 +51,7 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
   };
 
   return (
-    <div className="flex flex-1 flex-col px-5 pt-3">
+    <div className="flex flex-1 flex-col px-5 pt-3 sm:px-6 sm:pt-4">
       <ScreenHeader title="Your pick" close />
 
       {loading && !suggestion ? (
@@ -74,8 +74,8 @@ function SongResult({ s, onFav, onSkip, onSpin }: ResultProps) {
   return (
     <div className="reveal flex flex-1 flex-col items-center pt-2 text-center">
       <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-accent">Random song for you</p>
-      <Media src={s.imageUrl} alt={s.title} icon="note" className="h-52 w-52" />
-      <h2 className="mt-5 text-2xl font-extrabold">{s.title}</h2>
+      <Media src={s.imageUrl} alt={s.title} icon="note" className="size-[clamp(11rem,52vw,13rem)]" />
+      <h2 className="mt-5 text-2xl font-extrabold sm:text-3xl">{s.title}</h2>
       <p className="mt-1 text-sub">{s.artist}</p>
       <MetaChips items={[...s.genres, ...s.vibes, s.year]} />
 
@@ -124,9 +124,9 @@ function PreviewPlayer({ src }: { src: string }) {
         <button
           onClick={toggle}
           aria-label={playing ? "Pause" : "Play preview"}
-          className="grid h-12 w-12 flex-none place-items-center rounded-full bg-accent text-white transition active:scale-95"
+          className="grid h-12 w-12 flex-none place-items-center rounded-full bg-accent text-white transition duration-100 active:scale-90 active:brightness-110"
         >
-          <Icon name={playing ? "pause" : "play"} size={18} />
+          <Icon key={playing ? "pause" : "play"} name={playing ? "pause" : "play"} size={18} className="animate-[pop_0.25s_ease]" />
         </button>
         <input
           type="range"
@@ -148,7 +148,7 @@ function PreviewPlayer({ src }: { src: string }) {
       </div>
 
       <div className="mt-3 flex items-center gap-2">
-        <button onClick={() => setMuted((m) => !m)} aria-label={muted ? "Unmute" : "Mute"} className="flex-none text-sub">
+        <button onClick={() => setMuted((m) => !m)} aria-label={muted ? "Unmute" : "Mute"} className="flex-none text-sub transition active:scale-90">
           <Icon name={muted || volume === 0 ? "mute" : "volume"} size={18} />
         </button>
         <input
@@ -213,10 +213,11 @@ function MovieResult({ s, onFav, onSkip, onSpin }: ResultProps) {
   return (
     <div className="reveal flex flex-1 flex-col items-center pt-2 text-center">
       <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-accent">Watch this tonight</p>
-      <Media src={s.imageUrl} alt={s.title} icon="popcorn" className="h-56 w-40" onClick={() => openLink(s.url)} />
-      <h2 className="mt-4 text-xl font-extrabold leading-tight">{s.title}</h2>
+      <Media src={s.imageUrl} alt={s.title} icon="popcorn" className="h-[clamp(13rem,60vw,14rem)] w-[clamp(9.5rem,42vw,10rem)]" onClick={() => openLink(s.url)} />
+      <h2 className="mt-4 text-xl font-extrabold leading-tight sm:text-2xl">{s.title}</h2>
       <p className="mt-2 text-[13px] font-semibold text-sub">{metaLine}</p>
       <MetaChips items={s.genres} />
+      <Credits director={s.director} cast={s.cast} />
       {s.synopsis && <p className="mt-4 line-clamp-4 text-[13px] leading-relaxed text-sub">{s.synopsis}</p>}
 
       {s.providers.length > 0 && (
@@ -248,8 +249,8 @@ function BookResult({ s, onFav, onSkip, onSpin }: ResultProps) {
   return (
     <div className="reveal flex flex-1 flex-col items-center pt-2 text-center">
       <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-accent">Read this next</p>
-      <Media src={s.imageUrl} alt={s.title} icon="book" className="h-56 w-40" onClick={() => openLink(s.url)} />
-      <h2 className="mt-4 text-xl font-extrabold leading-tight">{s.title}</h2>
+      <Media src={s.imageUrl} alt={s.title} icon="book" className="h-[clamp(13rem,60vw,14rem)] w-[clamp(9.5rem,42vw,10rem)]" onClick={() => openLink(s.url)} />
+      <h2 className="mt-4 text-xl font-extrabold leading-tight sm:text-2xl">{s.title}</h2>
       {s.artist && <p className="mt-1 text-sub">{s.artist}</p>}
       {metaLine && <p className="mt-2 text-[13px] font-semibold text-sub">{metaLine}</p>}
       <MetaChips items={s.genres} />
@@ -341,6 +342,25 @@ function MetaChips({ items }: { items: (string | number | null)[] }) {
   );
 }
 
+/** Director + top-billed cast for a movie/series, shown under the genre chips. */
+function Credits({ director, cast }: { director: string | null; cast: string[] | null }) {
+  const rows = [
+    director ? { label: "Director", value: director } : null,
+    cast?.length ? { label: "Cast", value: cast.join(", ") } : null,
+  ].filter(Boolean) as { label: string; value: string }[];
+  if (!rows.length) return null;
+  return (
+    <div className="mt-3 space-y-0.5 text-[12px] leading-snug text-sub">
+      {rows.map((r) => (
+        <p key={r.label}>
+          <span className="text-faint">{r.label} · </span>
+          {r.value}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function ActionRow({ actions }: { actions: Action[] }) {
   return (
     <div className="mt-5 flex w-full gap-2.5">
@@ -348,11 +368,12 @@ function ActionRow({ actions }: { actions: Action[] }) {
         <button
           key={a.label}
           onClick={a.onClick}
-          className={`flex flex-1 flex-col items-center gap-1.5 rounded-xl border py-3 text-xs font-semibold transition active:scale-95 ${
+          className={`flex flex-1 flex-col items-center gap-1.5 rounded-xl border py-3 text-xs font-semibold transition-[transform,background-color] duration-100 active:scale-95 active:bg-surface-2 ${
             a.active ? "border-accent text-accent" : "border-line text-sub"
           }`}
         >
-          <Icon name={a.icon} size={18} />
+          {/* keyed so toggling to "active" (e.g. favourited) replays the pop */}
+          <Icon key={a.active ? "on" : "off"} name={a.icon} size={18} className={a.active ? "animate-[pop_0.3s_ease]" : ""} />
           {a.label}
         </button>
       ))}
@@ -361,8 +382,8 @@ function ActionRow({ actions }: { actions: Action[] }) {
 }
 
 const SpinAgain = ({ onClick }: { onClick: () => void }) => (
-  <Button variant="outline" onClick={onClick} className="mt-4">
-    <Icon name="dice" size={18} />
+  <Button variant="outline" onClick={onClick} className="group mt-4">
+    <Icon name="dice" size={18} className="transition-transform duration-300 group-active:rotate-180" />
     Spin again
   </Button>
 );

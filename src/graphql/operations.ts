@@ -20,6 +20,8 @@ const SUGGESTION_FIELDS = gql`
     imageUrl
     previewUrl
     trailerUrl
+    director
+    cast
     isFavorite
   }
 `;

@@ -20,7 +20,7 @@ export const TAXONOMY = {
 } as const;
 
 export const MODE_META: Record<Mode, { label: string; greeting: string }> = {
-  MUSIC: { label: "Music", greeting: "Can’t decide?" },
+  MUSIC: { label: "Music", greeting: "What to listen to?" },
   MOVIE: { label: "Movies & TV", greeting: "What to watch?" },
   BOOK: { label: "Books", greeting: "What to read?" },
 };

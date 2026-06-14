@@ -19,6 +19,9 @@ export interface ExternalSuggestion {
   imageUrl: string | null;
   previewUrl: string | null;
   trailerUrl: string | null;
+  // Movies/series only — shown on the result, fetched per pick (not persisted).
+  director?: string | null;
+  cast?: string[];
 }
 
 export type { SuggestionFilter };
@@ -39,24 +42,37 @@ export const titleCase = (s: string) =>
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// A slow external API is the main source of suggestion latency, so every request is
+// time-boxed: a hung call aborts fast and the service falls back to the seed catalogue.
+export const FETCH_TIMEOUT_MS = 3000;
+export const timeoutSignal = (ms: number = FETCH_TIMEOUT_MS): AbortSignal => AbortSignal.timeout(ms);
+
+/** Reject `promise` if it outlives `ms` — bounds total provider time per spin. */
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`operation timed out after ${ms}ms`)), ms)),
+  ]);
+}
+
 /**
- * fetch + JSON with small retries for transient failures (network errors / 5xx),
- * which TMDB occasionally throws. Client errors (4xx) are not retried.
+ * fetch + JSON, time-boxed, with one retry for transient failures (network errors /
+ * 5xx / timeouts), which TMDB occasionally throws. Client errors (4xx) are not retried.
  */
-export async function fetchJson<T>(url: string, init?: RequestInit, retries = 2): Promise<T> {
+export async function fetchJson<T>(url: string, init?: RequestInit, retries = 1): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, { ...init, signal: init?.signal ?? timeoutSignal() });
       if (res.ok) return (await res.json()) as T;
       const error = new Error(`${url} → ${res.status} ${res.statusText}`);
       if (res.status < 500) throw error; // client error — retrying won't help
       lastError = error; // server error — retryable
     } catch (err) {
       if (err instanceof Error && /→ 4\d\d/.test(err.message)) throw err; // surface 4xx immediately
-      lastError = err; // network failure — retryable
+      lastError = err; // network failure / timeout — retryable
     }
-    if (attempt < retries) await sleep(150 * (attempt + 1));
+    if (attempt < retries) await sleep(120 * (attempt + 1));
   }
   throw lastError;
 }

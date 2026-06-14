@@ -6,6 +6,7 @@ import {
   pick,
   rand,
 } from "./types";
+import { cachedPool, filterKey, isCacheableFilter } from "./cache";
 
 const API = "https://api.themoviedb.org/3";
 const IMG = "https://image.tmdb.org/t/p/w500";
@@ -40,6 +41,8 @@ interface TmdbVideo {
 interface TmdbDetails extends TmdbResult {
   runtime?: number;
   genres: { id: number; name: string }[];
+  created_by?: { name: string }[]; // series creators
+  credits?: { cast?: { name: string }[]; crew?: { job: string; name: string }[] };
   "watch/providers"?: { results?: Record<string, { flatrate?: { provider_name: string }[] }> };
   videos?: { results: TmdbVideo[] };
 }
@@ -50,6 +53,12 @@ function trailerFrom(details: TmdbDetails): string | null {
   const best =
     yt.find((v) => v.type === "Trailer" && v.official) ?? yt.find((v) => v.type === "Trailer") ?? yt[0];
   return best ? `https://www.youtube.com/watch?v=${best.key}` : null;
+}
+
+/** Director (movies) or first creator (series); null if neither is listed. */
+function directorFrom(details: TmdbDetails): string | null {
+  const director = details.credits?.crew?.find((c) => c.job === "Director")?.name;
+  return director ?? details.created_by?.[0]?.name ?? null;
 }
 
 function apiKey(): string {
@@ -116,18 +125,16 @@ export function vibeGenreHints(text: string): string[] {
 
 /** Resolve a free-text vibe into TMDB keyword ids (the whole phrase, then salient words). */
 async function keywordIds(text: string): Promise<number[]> {
-  const phrases = [text.trim(), ...text.toLowerCase().split(/[\s,]+/).filter((w) => w.length > 2 && !STOPWORDS.has(w))];
-  const ids = new Set<number>();
-  for (const phrase of phrases) {
-    if (ids.size >= 4) break;
-    try {
-      const data = await fetchJson<{ results: { id: number }[] }>(url("/search/keyword", { query: phrase, page: 1 }));
-      if (data.results[0]) ids.add(data.results[0].id);
-    } catch {
-      /* a keyword miss is fine — other phrases may still resolve */
-    }
-  }
-  return [...ids];
+  const phrases = [text.trim(), ...text.toLowerCase().split(/[\s,]+/).filter((w) => w.length > 2 && !STOPWORDS.has(w))].slice(0, 4);
+  // Look the phrases up concurrently — sequential calls were a big latency source.
+  const ids = await Promise.all(
+    phrases.map((phrase) =>
+      fetchJson<{ results: { id: number }[] }>(url("/search/keyword", { query: phrase, page: 1 }))
+        .then((d) => d.results[0]?.id)
+        .catch(() => undefined), // a keyword miss is fine — other phrases may still resolve
+    ),
+  );
+  return [...new Set(ids.filter((id): id is number => typeof id === "number"))];
 }
 
 const dedupeById = (rows: TmdbResult[]): TmdbResult[] => [...new Map(rows.map((r) => [r.id, r])).values()];
@@ -143,12 +150,12 @@ async function discoverPage(kind: Kind, params: Record<string, string | number>)
 }
 
 /**
- * A random movie or series from TMDB. A typed description is a *vibe*, not a title,
- * so it's mapped to TMDB keywords + genres and run through /discover — a title search
- * (which only matches names) would return irrelevant picks. Falls back to a popular
- * discover when nothing resolves, so a spin never dead-ends.
+ * Fetch a pool of candidate titles for the filter (cached per query). A typed
+ * description is a *vibe*, not a title, so it's mapped to TMDB keywords + genres and
+ * run through /discover — a title search (which only matches names) would return
+ * irrelevant picks. Falls back to a popular discover when nothing resolves.
  */
-export async function getRandomTitle(filter?: SuggestionFilter | null): Promise<ExternalSuggestion> {
+async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: Kind; results: TmdbResult[] }> {
   const kind = pickKind(filter?.type);
   const vibeText = [filter?.query, ...(filter?.vibes ?? [])].filter(Boolean).join(" ").trim();
 
@@ -187,13 +194,22 @@ export async function getRandomTitle(filter?: SuggestionFilter | null): Promise<
     });
   }
   if (results.length === 0) throw new Error("TMDB returned no results");
+  return { kind, results };
+}
+
+/** A random movie or series from TMDB, narrowed by the filter when present. */
+export async function getRandomTitle(filter?: SuggestionFilter | null): Promise<ExternalSuggestion> {
+  const key = isCacheableFilter(filter) ? filterKey("MOVIE", filter) : null;
+  const { kind, results } = await cachedPool(key, () => discoverPool(filter));
 
   const chosen = pick(results);
-  // One details call (watch providers + videos appended) fills runtime, where-to-watch, trailer.
-  const details = await fetchJson<TmdbDetails>(url(`/${kind}/${chosen.id}`, { append_to_response: "watch/providers,videos" }));
+  // One details call (watch providers + videos + credits appended) fills runtime,
+  // where-to-watch, trailer, and the director + top cast.
+  const details = await fetchJson<TmdbDetails>(url(`/${kind}/${chosen.id}`, { append_to_response: "watch/providers,videos,credits" }));
 
   const date = details.release_date || details.first_air_date || "";
   const providers = details["watch/providers"]?.results?.US?.flatrate?.map((p) => p.provider_name).slice(0, 3) ?? [];
+  const cast = details.credits?.cast?.slice(0, 4).map((c) => c.name) ?? [];
 
   return {
     id: `tmdb:${kind}:${chosen.id}`,
@@ -213,5 +229,7 @@ export async function getRandomTitle(filter?: SuggestionFilter | null): Promise<
     imageUrl: details.poster_path ? `${IMG}${details.poster_path}` : null,
     previewUrl: null,
     trailerUrl: trailerFrom(details),
+    director: directorFrom(details),
+    cast,
   };
 }

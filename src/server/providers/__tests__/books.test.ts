@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getRandomBook } from "../books";
+import { clearCandidateCache } from "../cache";
 import { jsonOk, mockFetch } from "./fetchMock";
 
 const DOC = {
@@ -15,7 +16,10 @@ const DOC = {
 };
 const qOf = (url: string) => new URL(url).searchParams.get("q") ?? "";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  clearCandidateCache();
+});
 
 describe("getRandomBook", () => {
   it("maps a genre chip to a subject, searches the vibe text, and builds a Suggestion", async () => {

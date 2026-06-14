@@ -33,11 +33,11 @@ export function HomeScreen() {
   const surprise = () => router.push(`/result?mode=${mode}`);
 
   return (
-    <div className="flex flex-1 flex-col px-5 pt-3">
+    <div className="flex flex-1 flex-col px-5 pt-3 sm:px-6 sm:pt-4">
       <header className="flex items-center justify-between">
         <div>
           <p className="text-[13px] text-sub">Hey there</p>
-          <h1 className="text-xl font-bold">{meta.greeting}</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">{meta.greeting}</h1>
         </div>
         <UserAvatar />
       </header>
@@ -54,13 +54,13 @@ export function HomeScreen() {
         />
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-6">
+      <div className="flex flex-1 flex-col items-center justify-center gap-6 sm:gap-8">
         <button
           onClick={surprise}
-          className="grid h-52 w-52 place-items-center rounded-full border border-accent transition active:scale-95"
+          className="group grid size-[clamp(11rem,52vw,13rem)] place-items-center rounded-full border border-accent transition active:scale-95"
         >
-          <span className="flex h-44 w-44 flex-col items-center justify-center gap-1.5 rounded-full bg-surface px-5 text-center">
-            <Icon name="shuffle" size={38} className="text-ink" />
+          <span className="flex size-[clamp(9rem,44vw,11rem)] flex-col items-center justify-center gap-1.5 rounded-full bg-surface px-5 text-center transition-colors duration-100 group-active:bg-surface-2">
+            <Icon name="shuffle" size={38} className="text-ink transition-transform duration-300 group-active:rotate-180" />
             <span className="text-[15px] font-bold leading-none">Surprise Me</span>
             <span className="text-[11px] leading-snug text-sub">{COPY[mode].sub}</span>
           </span>

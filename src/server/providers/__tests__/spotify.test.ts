@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getRandomTrack, SIBLING_TAGS, vibeGenreTag } from "../spotify";
+import { clearCandidateCache } from "../cache";
 import { jsonOk, mockFetch } from "./fetchMock";
 
 const track = (id: string) => ({
@@ -20,7 +21,10 @@ beforeEach(() => {
   // Deterministic random offset (rand(20) -> 10) so the two page pulls differ.
   vi.spyOn(Math, "random").mockReturnValue(0.5);
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  clearCandidateCache();
+});
 
 describe("vibeGenreTag", () => {
   it("maps moods to verified-good tags and avoids the junk ones", () => {

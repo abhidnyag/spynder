@@ -28,7 +28,7 @@ export function HistoryScreen() {
 
   if (!authLoading && !user) {
     return (
-      <div className="flex flex-1 flex-col px-5 pt-3">
+      <div className="flex flex-1 flex-col px-5 pt-3 sm:px-6 sm:pt-4">
         <ScreenHeader title="History" />
         <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
           <Icon name="clock" size={40} className="text-faint" />
@@ -47,7 +47,7 @@ export function HistoryScreen() {
   }
 
   return (
-    <div className="flex flex-1 flex-col px-5 pt-3">
+    <div className="flex flex-1 flex-col px-5 pt-3 sm:px-6 sm:pt-4">
       <ScreenHeader title="History" action={{ label: "Clear", onClick: () => clear() }} />
 
       <div className="mt-2">
@@ -90,8 +90,8 @@ function Row({ entry }: { entry: HistoryEntry }) {
       : s.mode === "BOOK"
         ? `${s.artist ?? "Book"} · ${action}`
         : `${s.type === "series" ? "Series" : "Movie"} · ${action}`;
-  return (
-    <li className="flex items-center gap-3 border-b border-line py-3">
+  const inner = (
+    <>
       <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl border border-line bg-surface text-sub">
         {s.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- remote art, fixed size
@@ -104,7 +104,24 @@ function Row({ entry }: { entry: HistoryEntry }) {
         <p className="truncate text-sm font-semibold">{s.title}</p>
         <p className="truncate text-xs text-sub">{subtitle}</p>
       </div>
-      <Icon name="chevron" size={18} className="text-faint" />
+      <Icon name={s.url ? "open" : "chevron"} size={18} className="text-faint" />
+    </>
+  );
+
+  return (
+    <li className="border-b border-line">
+      {s.url ? (
+        <a
+          href={s.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 py-3 transition active:scale-[0.99] active:opacity-70"
+        >
+          {inner}
+        </a>
+      ) : (
+        <div className="flex items-center gap-3 py-3">{inner}</div>
+      )}
     </li>
   );
 }

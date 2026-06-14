@@ -28,7 +28,7 @@ export function FavoritesScreen() {
 
   if (!authLoading && !user) {
     return (
-      <div className="flex flex-1 flex-col px-5 pt-3">
+      <div className="flex flex-1 flex-col px-5 pt-3 sm:px-6 sm:pt-4">
         <ScreenHeader title="Saved" />
         <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
           <Icon name="heart" size={40} className="text-faint" />
@@ -47,7 +47,7 @@ export function FavoritesScreen() {
   }
 
   return (
-    <div className="flex flex-1 flex-col px-5 pt-3">
+    <div className="flex flex-1 flex-col px-5 pt-3 sm:px-6 sm:pt-4">
       <ScreenHeader title="Saved" />
       <div className="mt-2">
         <SegmentedControl<Tab>
@@ -72,8 +72,14 @@ export function FavoritesScreen() {
             on a pick to save it here.
           </li>
         ) : (
-          items.map((s) => (
-            <li key={s.id} className="flex items-center gap-3 border-b border-line py-3">
+          items.map((s) => {
+            const meta =
+              s.mode === "MUSIC"
+                ? s.artist
+                : s.mode === "BOOK"
+                  ? [s.artist, s.year].filter(Boolean).join(" · ")
+                  : [s.type === "series" ? "Series" : "Movie", s.year].filter(Boolean).join(" · ");
+            const cover = (
               <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl border border-line bg-surface text-sub">
                 {s.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element -- remote art, fixed size
@@ -82,25 +88,42 @@ export function FavoritesScreen() {
                   <Icon name={s.mode === "MUSIC" ? "note" : s.mode === "BOOK" ? "book" : "popcorn"} size={20} />
                 )}
               </span>
+            );
+            const text = (
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{s.title}</p>
-                <p className="truncate text-xs text-sub">
-                  {s.mode === "MUSIC"
-                    ? s.artist
-                    : s.mode === "BOOK"
-                      ? [s.artist, s.year].filter(Boolean).join(" · ")
-                      : [s.type === "series" ? "Series" : "Movie", s.year].filter(Boolean).join(" · ")}
-                </p>
+                <p className="truncate text-xs text-sub">{meta}</p>
               </div>
-              <button
-                onClick={() => toggle({ variables: { suggestionId: s.id } })}
-                aria-label="Remove from favourites"
-                className="text-accent transition active:scale-90"
-              >
-                <Icon name="heartFilled" size={20} />
-              </button>
-            </li>
-          ))
+            );
+            return (
+              <li key={s.id} className="flex items-center gap-3 border-b border-line py-3">
+                {/* Open the pick's page; the heart stays outside the link so removing doesn't navigate. */}
+                {s.url ? (
+                  <a
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex min-w-0 flex-1 items-center gap-3 transition active:scale-[0.99] active:opacity-70"
+                  >
+                    {cover}
+                    {text}
+                  </a>
+                ) : (
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    {cover}
+                    {text}
+                  </div>
+                )}
+                <button
+                  onClick={() => toggle({ variables: { suggestionId: s.id } })}
+                  aria-label="Remove from favourites"
+                  className="flex-none text-accent transition active:scale-90"
+                >
+                  <Icon name="heartFilled" size={20} />
+                </button>
+              </li>
+            );
+          })
         )}
       </ul>
 

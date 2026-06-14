@@ -21,7 +21,7 @@ export function BottomNav() {
           <Link
             key={href}
             href={href}
-            className={`flex flex-col items-center gap-1 px-4 text-[10px] ${active ? "text-ink" : "text-faint"}`}
+            className={`flex flex-col items-center gap-1 px-4 text-[10px] transition active:scale-90 ${active ? "text-ink" : "text-faint"}`}
           >
             <Icon name={icon} size={20} />
             {label}

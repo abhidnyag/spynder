@@ -2,7 +2,7 @@ import type { Mode, PrismaClient, Suggestion } from "@prisma/client";
 import { getRandomTrack } from "@/server/providers/spotify";
 import { getRandomTitle } from "@/server/providers/tmdb";
 import { getRandomBook } from "@/server/providers/books";
-import { ProviderUnavailable, type ExternalSuggestion } from "@/server/providers/types";
+import { ProviderUnavailable, withTimeout, type ExternalSuggestion } from "@/server/providers/types";
 
 export interface SuggestionFilter {
   type?: string | null;
@@ -18,6 +18,7 @@ export function toSuggestionDTO(s: Suggestion) {
     genres: (s.genres as string[]) ?? [],
     vibes: (s.vibes as string[]) ?? [],
     providers: (s.providers as string[]) ?? [],
+    cast: (s.cast as string[]) ?? [],
   };
 }
 
@@ -56,6 +57,8 @@ async function persist(prisma: PrismaClient, ext: ExternalSuggestion, userId: st
     imageUrl: ext.imageUrl,
     previewUrl: ext.previewUrl,
     trailerUrl: ext.trailerUrl,
+    director: ext.director ?? null,
+    cast: ext.cast ?? [],
   };
   await prisma.suggestion.upsert({ where: { id: ext.id }, create: { id: ext.id, ...data }, update: data });
   await prisma.historyEntry.create({ data: { suggestionId: ext.id, action: "suggested", userId } });
@@ -64,7 +67,10 @@ async function persist(prisma: PrismaClient, ext: ExternalSuggestion, userId: st
 
 // How many recent picks to avoid repeating before allowing them again.
 const RECENT_WINDOW = 8;
-const PROVIDER_RETRIES = 5;
+// Each re-roll is a fresh round of API calls, so keep it low to stay fast.
+const PROVIDER_RETRIES = 2;
+// Hard ceiling on live-provider work per spin; past this we serve the seed instantly.
+const PROVIDER_BUDGET_MS = 4000;
 
 /** The ids most recently shown for this mode + user, so "Spin again" can skip them. */
 async function recentlyPickedIds(prisma: PrismaClient, mode: Mode, userId: string | null): Promise<Set<string>> {
@@ -91,14 +97,20 @@ export async function getRandomSuggestion(
 ) {
   const recent = await recentlyPickedIds(prisma, mode, userId);
 
+  const fetchExternal = () =>
+    mode === "MUSIC" ? getRandomTrack(filter) : mode === "BOOK" ? getRandomBook(filter) : getRandomTitle(filter);
+
   try {
-    const fetchExternal = () =>
-      mode === "MUSIC" ? getRandomTrack(filter) : mode === "BOOK" ? getRandomBook(filter) : getRandomTitle(filter);
-    let ext = await fetchExternal();
-    // Re-roll a few times if the provider hands back something just shown.
-    for (let i = 0; i < PROVIDER_RETRIES && recent.has(ext.id); i++) {
-      ext = await fetchExternal();
-    }
+    // Whole live attempt (initial pick + re-rolls) is time-boxed so a slow API
+    // never stalls the spin — we drop to the instant seed pick instead.
+    const ext = await withTimeout(
+      (async () => {
+        let e = await fetchExternal();
+        for (let i = 0; i < PROVIDER_RETRIES && recent.has(e.id); i++) e = await fetchExternal();
+        return e;
+      })(),
+      PROVIDER_BUDGET_MS,
+    );
     return await persist(prisma, ext, userId);
   } catch (err) {
     if (!(err instanceof ProviderUnavailable)) console.error("[provider] falling back to seed:", err);

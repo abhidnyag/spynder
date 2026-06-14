@@ -37,7 +37,7 @@ export function CustomizeScreen() {
   };
 
   return (
-    <div className="flex flex-1 flex-col gap-5 px-5 pb-6 pt-3">
+    <div className="flex flex-1 flex-col gap-5 px-5 pb-6 pt-3 sm:px-6 sm:pt-4">
       <ScreenHeader title="Customize" back action={{ label: "Reset", onClick: () => setDraft(EMPTY_DRAFT) }} />
 
       {mode === "MOVIE" && (
@@ -67,6 +67,7 @@ export function CustomizeScreen() {
         placeholder={describe.placeholder}
         value={query}
         onChange={(v) => patch({ query: v })}
+        onSubmit={surprise}
       />
 
       <Button onClick={surprise} className="mt-auto">

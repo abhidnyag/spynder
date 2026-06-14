@@ -1,12 +1,13 @@
-import { type ExternalSuggestion, type SuggestionFilter, fetchJson, pick, rand } from "./types";
+import { type ExternalSuggestion, type SuggestionFilter, fetchJson, pick } from "./types";
+import { cachedPool, filterKey, isCacheableFilter } from "./cache";
 
 // Open Library is fully free and keyless (no quota), so books work live out of the
 // box — unlike Spotify/TMDB. Its search `q` matches titles, authors AND subjects, so
 // a free-text vibe genuinely steers results; we add a `subject:` for genre chips.
 const API = "https://openlibrary.org/search.json";
 const COVERS = "https://covers.openlibrary.org/b/id";
-const PAGE = 20;
-const FIELDS = "key,title,author_name,first_publish_year,cover_i,subject,ratings_average,number_of_pages_median,first_sentence";
+const PAGE = 40; // one page of candidates — enough variety without a second slow round-trip
+const FIELDS = "key,title,author_name,first_publish_year,cover_i,subject,ratings_average,number_of_pages_median,first_sentence,edition_count,readinglog_count";
 
 // Our genre chips → Open Library subject names.
 const SUBJECTS: Record<string, string> = {
@@ -30,6 +31,8 @@ interface OLDoc {
   ratings_average?: number;
   number_of_pages_median?: number;
   first_sentence?: string[] | string;
+  edition_count?: number;
+  readinglog_count?: number;
 }
 interface OLResponse {
   numFound?: number;
@@ -87,24 +90,35 @@ function cleanGenres(subjects?: string[]): string[] {
   return out.length > 1 ? out.filter((g) => g !== "Fiction") : out;
 }
 
+// A book is "established" if real readers have logged it and it has been published in
+// several editions with cover art — a strong signal it's a real, findable book rather
+// than one of Open Library's many obscure self-published records.
+const isEstablished = (d: OLDoc): boolean =>
+  d.cover_i != null && ((d.edition_count ?? 0) >= 3 || (d.readinglog_count ?? 0) >= 50);
+
+/** Fetch a pool of candidate books for the filter (cached per query). */
+async function fetchDocs(filter?: SuggestionFilter | null): Promise<OLDoc[]> {
+  const q = buildQuery(filter);
+  // A single request, no retry — Open Library is occasionally slow, and retrying a slow
+  // call just burns the budget; failing fast to the seed pick keeps the spin snappy.
+  const res = await fetchJson<OLResponse>(url(q, 0), undefined, 0);
+  const all = (res.docs ?? []).filter((d) => d.title && d.key);
+
+  // Keep relevance order, but drop obscure junk so a vibe returns real, recognisable
+  // books. Fall back gradually so a niche query still returns something.
+  const established = all.filter(isEstablished);
+  const withCover = all.filter((d) => d.cover_i != null);
+  const docs = established.length >= 5 ? established : withCover.length >= 5 ? withCover : all;
+  if (docs.length === 0) throw new Error("Open Library returned no results");
+  return docs;
+}
+
 /** A random book from Open Library, narrowed by the filter when present. */
 export async function getRandomBook(filter?: SuggestionFilter | null): Promise<ExternalSuggestion> {
-  const q = buildQuery(filter);
+  const key = isCacheableFilter(filter) ? filterKey("BOOK", filter) : null;
+  const docs = await cachedPool(key, () => fetchDocs(filter));
 
-  const first = await fetchJson<OLResponse>(url(q, 0));
-  let docs = first.docs ?? [];
-  // Spread picks across the result set instead of always returning the top page.
-  const total = Math.min(first.numFound ?? 0, 200);
-  if (total > PAGE) {
-    const offset = rand(Math.floor(total / PAGE)) * PAGE;
-    if (offset > 0) {
-      const more = await fetchJson<OLResponse>(url(q, offset));
-      if (more.docs?.length) docs = more.docs;
-    }
-  }
-  docs = docs.filter((d) => d.title && d.key);
-  if (docs.length === 0) throw new Error("Open Library returned no results");
-
+  // Mapping is pure, so a cached pool makes repeat "Spin again" picks instant.
   const d = pick(docs);
   return {
     id: `openlib:${d.key.replace(/^\/works\//, "")}`,

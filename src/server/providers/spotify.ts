@@ -1,4 +1,5 @@
 import { TAXONOMY } from "@/lib/taxonomy";
+import { cachedPool, filterKey, isCacheableFilter } from "./cache";
 import {
   type ExternalSuggestion,
   type SuggestionFilter,
@@ -6,6 +7,7 @@ import {
   fetchJson,
   pick,
   rand,
+  timeoutSignal,
   titleCase,
 } from "./types";
 
@@ -30,6 +32,7 @@ async function resolvePreview(track: SpotifyTrack): Promise<string | null> {
   try {
     const res = await fetch(`https://open.spotify.com/embed/track/${track.id}`, {
       headers: { "User-Agent": "Mozilla/5.0" },
+      signal: timeoutSignal(2500), // a best-effort scrape — don't let it stall the spin
     });
     if (!res.ok) return null;
     const html = await res.text();
@@ -70,7 +73,7 @@ const SEARCH_LIMIT = 10;
 async function searchTracks(token: string, q: string, offset: number): Promise<SpotifyTrack[]> {
   const res = await fetch(
     `${API}/search?type=track&market=US&limit=${SEARCH_LIMIT}&offset=${offset}&q=${encodeURIComponent(q)}`,
-    auth(token),
+    { ...auth(token), signal: timeoutSignal() },
   );
   if (!res.ok) return []; // sparse result / throttle → caller retries at offset 0
   const data = (await res.json()) as { tracks?: { items: SpotifyTrack[] } };
@@ -119,10 +122,12 @@ const dedupeTracks = (rows: SpotifyTrack[]): SpotifyTrack[] => [...new Map(rows.
  * catalogue is thin (e.g. "study" returns only a handful) so "Spin again" keeps moving.
  */
 async function moodPool(token: string, tag: string): Promise<SpotifyTrack[]> {
-  let pool = dedupeTracks([
-    ...(await searchTracks(token, `genre:"${tag}"`, rand(20))),
-    ...(await searchTracks(token, `genre:"${tag}"`, 0)),
+  // The two pages for the tag are independent — fetch them together.
+  const [a, b] = await Promise.all([
+    searchTracks(token, `genre:"${tag}"`, rand(20)),
+    searchTracks(token, `genre:"${tag}"`, 0),
   ]);
+  let pool = dedupeTracks([...a, ...b]);
   for (const sibling of SIBLING_TAGS[tag] ?? []) {
     if (pool.length >= 15) break;
     pool = dedupeTracks([...pool, ...(await searchTracks(token, `genre:"${sibling}"`, 0))]);
@@ -130,43 +135,46 @@ async function moodPool(token: string, tag: string): Promise<SpotifyTrack[]> {
   return pool;
 }
 
-/** A random track from Spotify, narrowed by the filter when present. */
-export async function getRandomTrack(filter?: SuggestionFilter | null): Promise<ExternalSuggestion> {
-  const token = await getToken();
-
+/** Fetch a pool of candidate tracks for the filter (cached per query). */
+async function searchPool(token: string, filter?: SuggestionFilter | null): Promise<SpotifyTrack[]> {
   const free = [...(filter?.vibes ?? []), filter?.query].filter(Boolean).join(" ").trim();
   // A vibe with no explicit genre chip → steer by the mapped mood tag (the tag
   // captures the mood, so don't also title-match the descriptive text).
   const moodTag = filter?.genres?.length ? null : free ? vibeGenreTag(free) : null;
   const genre = filter?.genres?.length ? pick(filter.genres).toLowerCase() : moodTag ?? pick(TAXONOMY.MUSIC.genres).toLowerCase();
 
-  let items: SpotifyTrack[];
-  if (moodTag) {
-    items = await moodPool(token, moodTag);
-  } else {
-    // A `genre:"..."` filter gives far better relevance than a bare genre word.
-    const primary = [`genre:"${genre}"`, free].filter(Boolean).join(" ");
-    const fallback = free || genre; // plain text if the genre filter yields nothing
-    // Random offset spreads picks across pages; degrade gracefully on overshoot/sparse.
-    items = await searchTracks(token, primary, rand(20));
-    if (items.length === 0) items = await searchTracks(token, primary, 0);
-    if (items.length === 0) items = await searchTracks(token, fallback, 0);
-  }
+  if (moodTag) return moodPool(token, moodTag);
+
+  // A `genre:"..."` filter gives far better relevance than a bare genre word.
+  const primary = [`genre:"${genre}"`, free].filter(Boolean).join(" ");
+  const fallback = free || genre; // plain text if the genre filter yields nothing
+  // Random offset spreads picks across pages; degrade gracefully on overshoot/sparse.
+  let items = await searchTracks(token, primary, rand(20));
+  if (items.length === 0) items = await searchTracks(token, primary, 0);
+  if (items.length === 0) items = await searchTracks(token, fallback, 0);
+  return items;
+}
+
+/** A random track from Spotify, narrowed by the filter when present. */
+export async function getRandomTrack(filter?: SuggestionFilter | null): Promise<ExternalSuggestion> {
+  const token = await getToken();
+  const key = isCacheableFilter(filter) ? filterKey("MUSIC", filter) : null;
+  const items = await cachedPool(key, () => searchPool(token, filter));
   if (items.length === 0) throw new Error("Spotify returned no tracks");
 
   const track = pick(items);
-
-  // Track genres live on the artist; one extra call gives us real genre tags.
-  let genres: string[] = [];
   const artistId = track.artists[0]?.id;
-  if (artistId) {
-    try {
-      const artist = await fetchJson<{ genres: string[] }>(`${API}/artists/${artistId}`, auth(token));
-      genres = artist.genres.slice(0, 3).map(titleCase);
-    } catch {
-      /* genres are optional */
-    }
-  }
+
+  // The artist-genres lookup and the preview resolution are independent — run them
+  // concurrently instead of one after the other.
+  const [genres, previewUrl] = await Promise.all([
+    artistId
+      ? fetchJson<{ genres: string[] }>(`${API}/artists/${artistId}`, auth(token))
+          .then((a) => a.genres.slice(0, 3).map(titleCase))
+          .catch(() => [] as string[]) // genres are optional
+      : Promise.resolve<string[]>([]),
+    resolvePreview(track),
+  ]);
 
   return {
     id: `spotify:${track.id}`,
@@ -184,7 +192,7 @@ export async function getRandomTrack(filter?: SuggestionFilter | null): Promise<
     providers: ["Spotify"],
     url: track.external_urls.spotify,
     imageUrl: track.album.images[0]?.url ?? null,
-    previewUrl: await resolvePreview(track),
+    previewUrl,
     trailerUrl: null,
   };
 }

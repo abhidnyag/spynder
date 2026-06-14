@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getRandomTitle, vibeGenreHints } from "../tmdb";
+import { clearCandidateCache } from "../cache";
 import { jsonOk, mockFetch } from "./fetchMock";
 
 const GENRES = {
@@ -15,7 +16,10 @@ const GENRES = {
 beforeEach(() => {
   process.env.TMDB_API_KEY = "test-key";
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  clearCandidateCache();
+});
 
 describe("vibeGenreHints", () => {
   it("maps mood words to genre chips", () => {

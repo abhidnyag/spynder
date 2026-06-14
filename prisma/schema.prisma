@@ -57,6 +57,8 @@ model Suggestion {
   imageUrl   String? // cover art / poster
   previewUrl String? // 30-sec audio preview (music)
   trailerUrl String? // YouTube trailer (movies/series)
+  director   String? // movies/series — director or series creator
+  cast       Json? // movies/series — string[] of top-billed actors
   history    HistoryEntry[]
   favorites  Favorite[]
 

@@ -25,6 +25,8 @@ export interface Suggestion {
   imageUrl: string | null;
   previewUrl: string | null;
   trailerUrl: string | null;
+  director: string | null;
+  cast: string[] | null;
   isFavorite: boolean;
 }
 
