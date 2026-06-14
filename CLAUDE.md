@@ -4,8 +4,8 @@ Guidance for Claude Code (and other AI assistants) working in this repository.
 
 ## What this is
 
-**Spinder** is a "can't-decide" app: one tap suggests a random **song**, **movie**, or
-**series**, optionally narrowed by genre, vibe, or a free-text mood. It's a single
+**Spinder** is a "can't-decide" app: one tap suggests a random **song**, **movie**,
+**series**, or **book**, optionally narrowed by genre, vibe, or a free-text mood. It's a single
 **Next.js 15** (App Router) application that bundles the React frontend and a GraphQL
 backend in one Node process, backed by **MySQL** via **Prisma**.
 
@@ -49,7 +49,7 @@ one beneath it. Keep this separation when adding features.
 | API contract | `src/graphql/schema.ts` | The GraphQL type definitions |
 | Resolvers | `src/graphql/resolvers.ts` | Thin glue: validate args, call services |
 | Services | `src/server/services/*` | **Business logic** (random pick, filtering, history) |
-| Providers | `src/server/providers/*` | External catalogues (Spotify, TMDB) behind the service |
+| Providers | `src/server/providers/*` | External catalogues (Spotify, TMDB, Open Library) behind the service |
 | Data access | `src/lib/prisma.ts`, `prisma/schema.prisma` | Prisma ORM + MySQL |
 
 The single backend entry point is the Apollo Server route handler at
@@ -66,7 +66,9 @@ The single backend entry point is the Apollo Server route handler at
   for Movies/TV) is switched by a single `data-mode` attribute set from
   [src/context/ModeContext.tsx](src/context/ModeContext.tsx). Don't hardcode colors —
   use the tokens, and don't re-style inside screens; compose `components/ui` primitives.
-- **`mode` is `MUSIC | MOVIE`** throughout (the enum in the Prisma schema and GraphQL).
+- **`mode` is `MUSIC | MOVIE | BOOK`** throughout (the enum in the Prisma schema and
+  GraphQL). The accent theme switches per mode via `data-mode` (music=blue, movie=clay,
+  book=sage); add new modes to `TAXONOMY`/`MODE_META` in `src/lib/taxonomy.ts`.
 - **JSON array columns.** `genres`, `vibes`, and `providers` are stored as JSON string
   arrays in MySQL and normalized to real arrays via `toSuggestionDTO()` before leaving
   the service layer.
@@ -83,5 +85,6 @@ The single backend entry point is the Apollo Server route handler at
 
 Copy `.env.example` to `.env`. `DATABASE_URL` defaults to the bundled docker-compose
 MySQL. Optional `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` (music) and `TMDB_API_KEY`
-(movies/TV) switch from seed data to live results; without them the app uses the seeded
-catalogue.
+(movies/TV) switch from seed data to live results; without them those modes use the
+seeded catalogue. **Books are live by default** via Open Library, which is free and
+keyless (no env var); it still falls back to seeded books if the API is unreachable.
