@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: "Spinder — can’t decide?",
-  description: "One tap suggests a random song, movie, or series.",
+  description: "One tap suggests a random song, movie, series, or book.",
 };
 
 export const viewport: Viewport = {

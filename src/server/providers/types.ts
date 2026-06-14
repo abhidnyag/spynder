@@ -2,9 +2,9 @@ import type { SuggestionFilter } from "@/server/services/suggestion.service";
 
 /** Shape every external catalogue normalises to — mirrors the Suggestion model. */
 export interface ExternalSuggestion {
-  id: string; // stable external id, e.g. "spotify:<id>" / "tmdb:movie:<id>" / "gbooks:<id>"
+  id: string; // stable external id, e.g. "spotify:<id>" / "tmdb:movie:<id>" / "openlib:<id>"
   mode: "MUSIC" | "MOVIE" | "BOOK";
-  source: "spotify" | "tmdb" | "google_books";
+  source: "spotify" | "tmdb" | "open_library";
   type: string | null;
   title: string;
   artist: string | null;

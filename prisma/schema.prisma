@@ -42,7 +42,7 @@ model Favorite {
 model Suggestion {
   id        String         @id @default(cuid()) // external id for API data, e.g. "spotify:<id>"
   mode      Mode
-  source    String         @default("seed") // "seed" | "spotify" | "tmdb" | "google_books"
+  source    String         @default("seed") // "seed" | "spotify" | "tmdb" | "open_library"
   type      String? // "movie" | "series" (null for music/books)
   title     String
   artist    String? // music: artist · books: author
