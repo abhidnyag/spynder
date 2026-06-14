@@ -7,7 +7,7 @@ type SearchParams = Promise<Record<string, string | undefined>>;
 // Server component: parse URL params, hand a typed mode + filter to the client.
 export default async function Page({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
-  const mode: Mode = sp.mode === "MOVIE" ? "MOVIE" : "MUSIC";
+  const mode: Mode = sp.mode === "MOVIE" ? "MOVIE" : sp.mode === "BOOK" ? "BOOK" : "MUSIC";
 
   const filter: SuggestionFilter = {
     ...(sp.type ? { type: sp.type } : {}),

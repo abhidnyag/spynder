@@ -4,8 +4,9 @@
 
 /* ---------------------------------------------------------------------------
    Design tokens — minimal dark theme, Variant B "two-tone".
-   The accent swaps between Music (muted blue) and Movies (muted clay) via the
-   [data-mode] attribute set by ModeContext, keeping the UI consistent.
+   The accent swaps between Music (muted blue), Movies (muted clay) and Books
+   (muted sage) via the [data-mode] attribute set by ModeContext, keeping the
+   UI consistent across modes.
 --------------------------------------------------------------------------- */
 :root {
   --bg: #111114;
@@ -21,6 +22,10 @@
 
 [data-mode="movie"] {
   --accent: #9a8d6f; /* Movies & TV — muted clay */
+}
+
+[data-mode="book"] {
+  --accent: #7d9a74; /* Books — muted sage green */
 }
 
 @layer base {

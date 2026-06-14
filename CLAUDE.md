@@ -20,6 +20,8 @@ npm run build        # Production build
 npm start            # Serve the production build
 npm run typecheck    # tsc --noEmit — run this to verify changes compile
 npm run lint         # next lint
+npm test             # vitest run — offline unit tests (network mocked)
+npm run test:watch   # vitest in watch mode
 
 npm run db:push      # Sync prisma/schema.prisma to MySQL
 npm run db:seed      # (Re)load the sample catalogue (safe to re-run)
@@ -30,8 +32,10 @@ docker compose up -d        # MySQL on :3306 + Adminer on :8080
 docker compose down [-v]    # stop (keep data) / -v also deletes data
 ```
 
-There is no test runner configured. Use `npm run typecheck` as the primary
-correctness gate after edits.
+Tests use **Vitest** (`npm test`), configured in `vitest.config.ts` (Node env, `@/`
+alias). Provider tests live in `src/server/providers/__tests__/` and mock global
+`fetch` via `fetchMock.ts`, so the suite is fully offline — it never calls Spotify/TMDB
+and can't be rate-limited. Run `npm run typecheck` alongside as the compile gate.
 
 ## Architecture (layered)
 

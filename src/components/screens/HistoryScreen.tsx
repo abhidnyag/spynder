@@ -13,7 +13,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { BottomNav } from "@/components/ui/BottomNav";
 
-type Tab = "ALL" | "MUSIC" | "MOVIE";
+type Tab = "ALL" | "MUSIC" | "MOVIE" | "BOOK";
 
 export function HistoryScreen() {
   const { user, loading: authLoading } = useAuth();
@@ -58,6 +58,7 @@ export function HistoryScreen() {
             { value: "ALL", label: "All" },
             { value: "MUSIC", label: "Music" },
             { value: "MOVIE", label: "Watch" },
+            { value: "BOOK", label: "Books" },
           ]}
         />
       </div>
@@ -83,7 +84,12 @@ export function HistoryScreen() {
 
 function Row({ entry }: { entry: HistoryEntry }) {
   const { suggestion: s, action } = entry;
-  const subtitle = s.mode === "MUSIC" ? `${s.artist} · ${action}` : `${s.type === "series" ? "Series" : "Movie"} · ${action}`;
+  const subtitle =
+    s.mode === "MUSIC"
+      ? `${s.artist} · ${action}`
+      : s.mode === "BOOK"
+        ? `${s.artist ?? "Book"} · ${action}`
+        : `${s.type === "series" ? "Series" : "Movie"} · ${action}`;
   return (
     <li className="flex items-center gap-3 border-b border-line py-3">
       <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl border border-line bg-surface text-sub">
@@ -91,7 +97,7 @@ function Row({ entry }: { entry: HistoryEntry }) {
           // eslint-disable-next-line @next/next/no-img-element -- remote art, fixed size
           <img src={s.imageUrl} alt={s.title} className="h-full w-full object-cover" />
         ) : (
-          <Icon name={s.mode === "MUSIC" ? "note" : "popcorn"} size={20} />
+          <Icon name={s.mode === "MUSIC" ? "note" : s.mode === "BOOK" ? "book" : "popcorn"} size={20} />
         )}
       </span>
       <div className="min-w-0 flex-1">

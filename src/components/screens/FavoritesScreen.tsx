@@ -13,7 +13,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { BottomNav } from "@/components/ui/BottomNav";
 
-type Tab = "ALL" | "MUSIC" | "MOVIE";
+type Tab = "ALL" | "MUSIC" | "MOVIE" | "BOOK";
 
 export function FavoritesScreen() {
   const { user, loading: authLoading } = useAuth();
@@ -57,6 +57,7 @@ export function FavoritesScreen() {
             { value: "ALL", label: "All" },
             { value: "MUSIC", label: "Music" },
             { value: "MOVIE", label: "Watch" },
+            { value: "BOOK", label: "Books" },
           ]}
         />
       </div>
@@ -78,13 +79,17 @@ export function FavoritesScreen() {
                   // eslint-disable-next-line @next/next/no-img-element -- remote art, fixed size
                   <img src={s.imageUrl} alt={s.title} className="h-full w-full object-cover" />
                 ) : (
-                  <Icon name={s.mode === "MUSIC" ? "note" : "popcorn"} size={20} />
+                  <Icon name={s.mode === "MUSIC" ? "note" : s.mode === "BOOK" ? "book" : "popcorn"} size={20} />
                 )}
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{s.title}</p>
                 <p className="truncate text-xs text-sub">
-                  {s.mode === "MUSIC" ? s.artist : [s.type === "series" ? "Series" : "Movie", s.year].filter(Boolean).join(" · ")}
+                  {s.mode === "MUSIC"
+                    ? s.artist
+                    : s.mode === "BOOK"
+                      ? [s.artist, s.year].filter(Boolean).join(" · ")
+                      : [s.type === "series" ? "Series" : "Movie", s.year].filter(Boolean).join(" · ")}
                 </p>
               </div>
               <button

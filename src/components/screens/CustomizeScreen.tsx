@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMode } from "@/context/ModeContext";
-import { TAXONOMY } from "@/lib/taxonomy";
+import { TAXONOMY, type Mode } from "@/lib/taxonomy";
 import { EMPTY_DRAFT, useCustomizeDraft, type MovieType } from "@/lib/useCustomizeDraft";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
@@ -14,7 +14,8 @@ import { Icon } from "@/components/ui/Icon";
 export function CustomizeScreen() {
   const { mode } = useMode();
   const router = useRouter();
-  const tax = mode === "MUSIC" ? TAXONOMY.MUSIC : TAXONOMY.MOVIE;
+  const tax = TAXONOMY[mode];
+  const describe = DESCRIBE[mode];
 
   // Filters persist per mode, so each tab reopens with its last selection.
   const [draft, setDraft] = useCustomizeDraft(mode);
@@ -62,8 +63,8 @@ export function CustomizeScreen() {
       </Section>
 
       <SuggestBox
-        label={mode === "MUSIC" ? "Or describe your mood" : "Or describe what you’re after"}
-        placeholder={mode === "MUSIC" ? "e.g. rainy Sunday morning, cleaning…" : "e.g. short & funny, under 2 hours…"}
+        label={describe.label}
+        placeholder={describe.placeholder}
         value={query}
         onChange={(v) => patch({ query: v })}
       />
@@ -75,6 +76,13 @@ export function CustomizeScreen() {
     </div>
   );
 }
+
+// Per-mode copy for the free-text describe box.
+const DESCRIBE: Record<Mode, { label: string; placeholder: string }> = {
+  MUSIC: { label: "Or describe your mood", placeholder: "e.g. rainy Sunday morning, cleaning…" },
+  MOVIE: { label: "Or describe what you’re after", placeholder: "e.g. short & funny, under 2 hours…" },
+  BOOK: { label: "Or describe the book you want", placeholder: "e.g. cozy mystery, slow-burn romance…" },
+};
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <section className="space-y-3">

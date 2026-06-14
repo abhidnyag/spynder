@@ -4,6 +4,7 @@ export type IconName =
   | "dice"
   | "shuffle"
   | "popcorn"
+  | "book"
   | "note"
   | "play"
   | "pause"
@@ -43,6 +44,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <path d="M5 8h14l-2 13H7L5 8Z" />
       <path d="M8 8v13M12 8v13M16 8v13" />
+    </>
+  ),
+  book: (
+    <>
+      <path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z" />
+      <path d="M9 4v14" />
     </>
   ),
   note: (

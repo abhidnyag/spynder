@@ -1,6 +1,7 @@
 import type { Mode, PrismaClient, Suggestion } from "@prisma/client";
 import { getRandomTrack } from "@/server/providers/spotify";
 import { getRandomTitle } from "@/server/providers/tmdb";
+import { getRandomBook } from "@/server/providers/books";
 import { ProviderUnavailable, type ExternalSuggestion } from "@/server/providers/types";
 
 export interface SuggestionFilter {
@@ -91,10 +92,12 @@ export async function getRandomSuggestion(
   const recent = await recentlyPickedIds(prisma, mode, userId);
 
   try {
-    let ext = mode === "MUSIC" ? await getRandomTrack(filter) : await getRandomTitle(filter);
+    const fetchExternal = () =>
+      mode === "MUSIC" ? getRandomTrack(filter) : mode === "BOOK" ? getRandomBook(filter) : getRandomTitle(filter);
+    let ext = await fetchExternal();
     // Re-roll a few times if the provider hands back something just shown.
     for (let i = 0; i < PROVIDER_RETRIES && recent.has(ext.id); i++) {
-      ext = mode === "MUSIC" ? await getRandomTrack(filter) : await getRandomTitle(filter);
+      ext = await fetchExternal();
     }
     return await persist(prisma, ext, userId);
   } catch (err) {

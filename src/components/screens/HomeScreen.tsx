@@ -18,6 +18,10 @@ const COPY: Record<Mode, { sub: string; caption: [string, string] }> = {
     sub: "random movie or series",
     caption: ["Stop scrolling for 40 minutes.", "One tap, one thing to watch."],
   },
+  BOOK: {
+    sub: "tap for a random read",
+    caption: ["Skip the endless to-read list.", "One tap, one book to start."],
+  },
 };
 
 export function HomeScreen() {
@@ -44,7 +48,8 @@ export function HomeScreen() {
           onChange={setMode}
           options={[
             { value: "MUSIC", label: "Music" },
-            { value: "MOVIE", label: "Movies & TV" },
+            { value: "MOVIE", label: "Movies" },
+            { value: "BOOK", label: "Books" },
           ]}
         />
       </div>

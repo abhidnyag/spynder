@@ -14,6 +14,7 @@ datasource db {
 enum Mode {
   MUSIC
   MOVIE
+  BOOK
 }
 
 model User {
@@ -41,13 +42,13 @@ model Favorite {
 model Suggestion {
   id        String         @id @default(cuid()) // external id for API data, e.g. "spotify:<id>"
   mode      Mode
-  source    String         @default("seed") // "seed" | "spotify" | "tmdb"
-  type      String? // "movie" | "series" (null for music)
+  source    String         @default("seed") // "seed" | "spotify" | "tmdb" | "google_books"
+  type      String? // "movie" | "series" (null for music/books)
   title     String
-  artist    String? // music only
+  artist    String? // music: artist · books: author
   year      Int?
-  rating    Float? // movies/series only
-  runtime   String? // e.g. "2h 19m" or "Series"
+  rating    Float? // movies/series · books (avg rating)
+  runtime   String? // e.g. "2h 19m" · "Series" · "320 pages"
   synopsis  String?        @db.Text
   genres    Json // string[]
   vibes     Json // string[]

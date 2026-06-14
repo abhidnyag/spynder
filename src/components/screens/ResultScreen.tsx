@@ -60,6 +60,8 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
         <p className="mt-20 text-center text-sub">No suggestions yet — try seeding the database.</p>
       ) : mode === "MUSIC" ? (
         <SongResult key={suggestion.id} s={suggestion} onFav={onFav} onSkip={onSkip} onSpin={spinAgain} />
+      ) : mode === "BOOK" ? (
+        <BookResult key={suggestion.id} s={suggestion} onFav={onFav} onSkip={onSkip} onSpin={spinAgain} />
       ) : (
         <MovieResult key={suggestion.id} s={suggestion} onFav={onFav} onSkip={onSkip} onSpin={spinAgain} />
       )}
@@ -235,6 +237,40 @@ function MovieResult({ s, onFav, onSkip, onSpin }: ResultProps) {
       <SpinAgain onClick={onSpin} />
 
       {showTrailer && embedUrl && <TrailerOverlay embedUrl={embedUrl} onClose={() => setShowTrailer(false)} />}
+    </div>
+  );
+}
+
+/* ------------------------------ book ------------------------------ */
+function BookResult({ s, onFav, onSkip, onSpin }: ResultProps) {
+  const metaLine = [s.rating && `★ ${s.rating.toFixed(1)}`, s.year, s.runtime].filter(Boolean).join("  ·  ");
+
+  return (
+    <div className="reveal flex flex-1 flex-col items-center pt-2 text-center">
+      <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-accent">Read this next</p>
+      <Media src={s.imageUrl} alt={s.title} icon="book" className="h-56 w-40" onClick={() => openLink(s.url)} />
+      <h2 className="mt-4 text-xl font-extrabold leading-tight">{s.title}</h2>
+      {s.artist && <p className="mt-1 text-sub">{s.artist}</p>}
+      {metaLine && <p className="mt-2 text-[13px] font-semibold text-sub">{metaLine}</p>}
+      <MetaChips items={s.genres} />
+      {s.synopsis && <p className="mt-4 line-clamp-4 text-[13px] leading-relaxed text-sub">{s.synopsis}</p>}
+
+      {s.providers.length > 0 && (
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {s.providers.map((p) => (
+            <span key={p} className="rounded-lg border border-line px-3 py-1.5 text-[11px] font-semibold text-sub">
+              {p}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <ActionRow actions={[
+        { icon: s.isFavorite ? "heartFilled" : "heart", label: s.isFavorite ? "Saved" : "Reading list", onClick: onFav, active: s.isFavorite },
+        { icon: "open", label: "Details", onClick: () => openLink(s.url) },
+        { icon: "skip", label: "Read it", onClick: onSkip },
+      ]} />
+      <SpinAgain onClick={onSpin} />
     </div>
   );
 }

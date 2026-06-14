@@ -33,12 +33,25 @@ const screen: Seed[] = [
   { mode: "MOVIE", type: "movie", title: "La La Land", year: 2016, rating: 8.0, runtime: "2h 8m", genres: ["Romance", "Drama"], vibes: ["Feel-good", "Tear-jerker"], providers: ["Netflix"], synopsis: "A jazz pianist and an aspiring actress fall in love while chasing their dreams in Los Angeles." },
 ];
 
+const books: Seed[] = [
+  { mode: "BOOK", title: "The Midnight Library", artist: "Matt Haig", year: 2020, rating: 4.0, runtime: "304 pages", genres: ["Fiction", "Fantasy"], vibes: ["Thought-provoking", "Heartwarming"], synopsis: "Between life and death is a library where each book lets you try a different version of the life you could have lived." },
+  { mode: "BOOK", title: "Project Hail Mary", artist: "Andy Weir", year: 2021, rating: 4.5, runtime: "496 pages", genres: ["Sci-Fi"], vibes: ["Page-turner", "Thought-provoking"], synopsis: "A lone astronaut wakes with no memory aboard a ship that is humanity's last hope — and must piece together how to save Earth." },
+  { mode: "BOOK", title: "The Thursday Murder Club", artist: "Richard Osman", year: 2020, rating: 4.0, runtime: "368 pages", genres: ["Mystery"], vibes: ["Cozy", "Page-turner"], synopsis: "Four retirees in a peaceful village meet weekly to investigate cold cases — until a real murder lands on their doorstep." },
+  { mode: "BOOK", title: "Klara and the Sun", artist: "Kazuo Ishiguro", year: 2021, rating: 3.8, runtime: "320 pages", genres: ["Sci-Fi", "Fiction"], vibes: ["Thought-provoking", "Dark"], synopsis: "An artificial friend observes the world with hope and wonder, watching for a chance to be chosen by a child to love." },
+  { mode: "BOOK", title: "The Song of Achilles", artist: "Madeline Miller", year: 2011, rating: 4.3, runtime: "416 pages", genres: ["Fantasy", "Romance"], vibes: ["Heartwarming", "Dark"], synopsis: "A retelling of the Iliad through the tender, doomed love between Patroclus and the golden warrior Achilles." },
+  { mode: "BOOK", title: "Educated", artist: "Tara Westover", year: 2018, rating: 4.5, runtime: "352 pages", genres: ["Non-fiction", "Biography"], vibes: ["Thought-provoking", "Dark"], synopsis: "A memoir of a girl raised off-grid by survivalist parents who leaves the mountain to earn a PhD from Cambridge." },
+  { mode: "BOOK", title: "The Name of the Wind", artist: "Patrick Rothfuss", year: 2007, rating: 4.5, runtime: "662 pages", genres: ["Fantasy"], vibes: ["Page-turner", "Cozy"], synopsis: "A gifted young man grows into the most notorious wizard of his world, recounting the truth behind the legend." },
+  { mode: "BOOK", title: "Gone Girl", artist: "Gillian Flynn", year: 2012, rating: 4.1, runtime: "432 pages", genres: ["Thriller", "Mystery"], vibes: ["Page-turner", "Dark"], synopsis: "When a woman vanishes on her wedding anniversary, her husband becomes the prime suspect in an unravelling marriage." },
+  { mode: "BOOK", title: "A Man Called Ove", artist: "Fredrik Backman", year: 2012, rating: 4.4, runtime: "352 pages", genres: ["Fiction"], vibes: ["Heartwarming", "Cozy"], synopsis: "A curmudgeonly widower's solitary routine is upended by a boisterous family that moves in next door." },
+  { mode: "BOOK", title: "Dune", artist: "Frank Herbert", year: 1965, rating: 4.2, runtime: "688 pages", genres: ["Sci-Fi"], vibes: ["Page-turner", "Thought-provoking"], synopsis: "On a desert planet prized for a reality-bending spice, a young heir is swept into a war for control of the universe." },
+];
+
 async function main() {
   // Idempotent: clear and re-seed so `db:seed` can be re-run safely.
   await prisma.historyEntry.deleteMany();
   await prisma.suggestion.deleteMany();
-  await prisma.suggestion.createMany({ data: [...songs, ...screen] });
-  console.log(`Seeded ${songs.length} songs and ${screen.length} movies/series.`);
+  await prisma.suggestion.createMany({ data: [...songs, ...screen, ...books] });
+  console.log(`Seeded ${songs.length} songs, ${screen.length} movies/series and ${books.length} books.`);
 }
 
 main()

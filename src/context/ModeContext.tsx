@@ -22,7 +22,7 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
   return (
     <ModeContext.Provider value={value}>
       <div
-        data-mode={mode === "MOVIE" ? "movie" : "music"}
+        data-mode={mode.toLowerCase()}
         className="no-scrollbar mx-auto flex min-h-dvh w-full max-w-app flex-col bg-bg"
       >
         {children}

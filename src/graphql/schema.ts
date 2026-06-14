@@ -5,6 +5,7 @@ export const typeDefs = gql`
   enum Mode {
     MUSIC
     MOVIE
+    BOOK
   }
 
   type User {
