@@ -1,0 +1,83 @@
+# CLAUDE.md
+
+Guidance for Claude Code (and other AI assistants) working in this repository.
+
+## What this is
+
+**Spinder** is a "can't-decide" app: one tap suggests a random **song**, **movie**, or
+**series**, optionally narrowed by genre, vibe, or a free-text mood. It's a single
+**Next.js 15** (App Router) application that bundles the React frontend and a GraphQL
+backend in one Node process, backed by **MySQL** via **Prisma**.
+
+See [README.md](./README.md) for setup and [ARCHITECTURE.md](./ARCHITECTURE.md) for a
+deep, step-by-step walkthrough of the stack.
+
+## Common commands
+
+```bash
+npm run dev          # Start Next.js in development (http://localhost:3000)
+npm run build        # Production build
+npm start            # Serve the production build
+npm run typecheck    # tsc --noEmit — run this to verify changes compile
+npm run lint         # next lint
+
+npm run db:push      # Sync prisma/schema.prisma to MySQL
+npm run db:seed      # (Re)load the sample catalogue (safe to re-run)
+npm run db:setup     # db:push + db:seed
+npm run db:generate  # Regenerate the Prisma client
+
+docker compose up -d        # MySQL on :3306 + Adminer on :8080
+docker compose down [-v]    # stop (keep data) / -v also deletes data
+```
+
+There is no test runner configured. Use `npm run typecheck` as the primary
+correctness gate after edits.
+
+## Architecture (layered)
+
+A request flows top-down through clearly separated layers — each depends only on the
+one beneath it. Keep this separation when adding features.
+
+| Layer | Location | Responsibility |
+| --- | --- | --- |
+| Presentation | `src/components/screens`, `src/components/ui` | Render UI, capture input |
+| Client data | `src/lib/apollo-client.ts`, `src/graphql/operations.ts` | Fetch/mutate via GraphQL |
+| API contract | `src/graphql/schema.ts` | The GraphQL type definitions |
+| Resolvers | `src/graphql/resolvers.ts` | Thin glue: validate args, call services |
+| Services | `src/server/services/*` | **Business logic** (random pick, filtering, history) |
+| Providers | `src/server/providers/*` | External catalogues (Spotify, TMDB) behind the service |
+| Data access | `src/lib/prisma.ts`, `prisma/schema.prisma` | Prisma ORM + MySQL |
+
+The single backend entry point is the Apollo Server route handler at
+[src/app/api/graphql/route.ts](src/app/api/graphql/route.ts).
+
+## Conventions & gotchas
+
+- **Keep resolvers thin.** Put real logic in `src/server/services/*`, not in
+  resolvers or components. The Prisma client is passed via GraphQL context
+  ([src/graphql/context.ts](src/graphql/context.ts)).
+- **Theming is token-driven.** Colors come from CSS variables in
+  [src/app/globals.scss](src/app/globals.scss), surfaced as Tailwind utilities via
+  [tailwind.config.ts](tailwind.config.ts). The two-tone accent (blue for Music, clay
+  for Movies/TV) is switched by a single `data-mode` attribute set from
+  [src/context/ModeContext.tsx](src/context/ModeContext.tsx). Don't hardcode colors —
+  use the tokens, and don't re-style inside screens; compose `components/ui` primitives.
+- **`mode` is `MUSIC | MOVIE`** throughout (the enum in the Prisma schema and GraphQL).
+- **JSON array columns.** `genres`, `vibes`, and `providers` are stored as JSON string
+  arrays in MySQL and normalized to real arrays via `toSuggestionDTO()` before leaving
+  the service layer.
+- **Suggestions never dead-end.** If filters eliminate all candidates, the service falls
+  back to the unfiltered pool. If an external provider key is missing or a call fails,
+  it falls back to the seeded DB pick (`getRandomFromSeed`). Preserve this graceful
+  degradation when touching the suggestion path.
+- **External providers cache into MySQL.** A live spin upserts the result with a stable
+  id (`spotify:<id>`, `tmdb:movie:<id>`) so the `HistoryEntry` foreign key stays valid.
+- **Every spin records history.** `getRandomSuggestion` writes a `suggested` history row;
+  Save/Skip write via the `recordHistory` mutation.
+
+## Environment
+
+Copy `.env.example` to `.env`. `DATABASE_URL` defaults to the bundled docker-compose
+MySQL. Optional `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` (music) and `TMDB_API_KEY`
+(movies/TV) switch from seed data to live results; without them the app uses the seeded
+catalogue.

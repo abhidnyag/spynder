@@ -1,0 +1,31 @@
+# dependencies
+/node_modules
+
+# next.js / build output
+/.next
+/out
+/build
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.local
+.env*.local
+.env.development
+.env.production
+*.pem
+*.key
+
+# logs
+*.log
+npm-debug.log*
+
+# misc
+.DS_Store
+Thumbs.db
+/coverage
+next-env.d.ts
+
+# IDE
+.idea
+*.swp

@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Design tokens — minimal dark theme, Variant B "two-tone".
+   The accent swaps between Music (muted blue) and Movies (muted clay) via the
+   [data-mode] attribute set by ModeContext, keeping the UI consistent.
+--------------------------------------------------------------------------- */
+:root {
+  --bg: #111114;
+  --surface: #1b1b20;
+  --surface-2: #22222a;
+  --line: #2c2c34;
+  --ink: #ececf0;
+  --sub: #9b9ba6;
+  --faint: #6a6a76;
+
+  --accent: #6f86b3; /* Music — muted blue (default) */
+}
+
+[data-mode="movie"] {
+  --accent: #9a8d6f; /* Movies & TV — muted clay */
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Hide scrollbars inside the app column for an app-like feel */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-surface;
+  }
+  .hairline {
+    @apply border-t border-line;
+  }
+  /* Range inputs (seek + volume) tinted with the active accent */
+  .range {
+    accent-color: var(--accent);
+    height: 4px;
+    cursor: pointer;
+  }
+  /* Subtle reveal used when a suggestion appears */
+  .reveal {
+    animation: reveal 0.35s ease both;
+  }
+  @keyframes reveal {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.99);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}

@@ -1,0 +1,76 @@
+// Spinder data model — MySQL via Prisma.
+// Genres/vibes/providers are stored as JSON arrays (MySQL has no scalar lists),
+// which keeps the schema small while remaining query-friendly at this scale.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Mode {
+  MUSIC
+  MOVIE
+}
+
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime       @default(now())
+  history      HistoryEntry[]
+  favorites    Favorite[]
+}
+
+model Favorite {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  suggestionId String
+  suggestion   Suggestion @relation(fields: [suggestionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, suggestionId])
+  @@index([userId])
+}
+
+model Suggestion {
+  id        String         @id @default(cuid()) // external id for API data, e.g. "spotify:<id>"
+  mode      Mode
+  source    String         @default("seed") // "seed" | "spotify" | "tmdb"
+  type      String? // "movie" | "series" (null for music)
+  title     String
+  artist    String? // music only
+  year      Int?
+  rating    Float? // movies/series only
+  runtime   String? // e.g. "2h 19m" or "Series"
+  synopsis  String?        @db.Text
+  genres    Json // string[]
+  vibes     Json // string[]
+  providers Json? // string[] — where to watch / listen
+  url        String? // external link (Spotify / TMDB)
+  imageUrl   String? // cover art / poster
+  previewUrl String? // 30-sec audio preview (music)
+  trailerUrl String? // YouTube trailer (movies/series)
+  history    HistoryEntry[]
+  favorites  Favorite[]
+
+  @@index([mode])
+}
+
+model HistoryEntry {
+  id           String     @id @default(cuid())
+  suggestionId String
+  suggestion   Suggestion @relation(fields: [suggestionId], references: [id], onDelete: Cascade)
+  userId       String? // null = anonymous session
+  user         User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action       String // "suggested" | "saved" | "skipped"
+  createdAt    DateTime   @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+}
