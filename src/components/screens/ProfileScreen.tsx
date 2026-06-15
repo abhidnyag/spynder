@@ -54,7 +54,7 @@ function AccountView() {
             <Icon name="chevron" size={18} className="text-faint" />
           </Link>
         </li>
-        {["Connected services", "Appearance", "About Spinder"].map((row) => (
+        {["Connected services", "Appearance", "About Spynder"].map((row) => (
           <li key={row} className="flex items-center justify-between border-b border-line py-4 text-sm text-sub">
             {row}
             <Icon name="chevron" size={18} className="text-faint" />

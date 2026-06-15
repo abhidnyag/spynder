@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 
 const SECRET = process.env.AUTH_SECRET || "dev-insecure-secret-change-me";
-export const COOKIE_NAME = "spinder_token";
+export const COOKIE_NAME = "spynder_token";
 const MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
 export const hashPassword = (password: string) => bcrypt.hash(password, 10);

@@ -17,5 +17,5 @@ export const EMPTY_DRAFT: CustomizeDraft = { type: "either", genres: [], vibes: 
  * screen so a typed description is remembered for the next Surprise Me / Spin.
  */
 export function useCustomizeDraft(mode: Mode) {
-  return usePersistentState<CustomizeDraft>(`spinder.customize.${mode}`, EMPTY_DRAFT);
+  return usePersistentState<CustomizeDraft>(`spynder.customize.${mode}`, EMPTY_DRAFT);
 }

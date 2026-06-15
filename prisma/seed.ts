@@ -80,7 +80,7 @@ async function getJson(url: string): Promise<{ results?: any[]; docs?: any[] } |
   // One retry — TMDB occasionally throws transient connection resets.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(6000), headers: { "User-Agent": "spinder-seed" } });
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000), headers: { "User-Agent": "spynder-seed" } });
       if (res.ok) return await res.json();
     } catch {
       /* transient — fall through to retry */

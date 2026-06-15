@@ -100,8 +100,8 @@ function PreviewPlayer({ src }: { src: string }) {
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(30);
   // Volume + mute persist across songs and reloads.
-  const [volume, setVolume] = usePersistentState("spinder.volume", 0.8);
-  const [muted, setMuted] = usePersistentState("spinder.muted", false);
+  const [volume, setVolume] = usePersistentState("spynder.volume", 0.8);
+  const [muted, setMuted] = usePersistentState("spynder.muted", false);
 
   useEffect(() => {
     const a = audioRef.current;

@@ -6,7 +6,7 @@ import "./globals.scss";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "Spinder — can’t decide?",
+  title: "Spynder — can’t decide?",
   description: "One tap suggests a random song, movie, series, or book.",
 };
 

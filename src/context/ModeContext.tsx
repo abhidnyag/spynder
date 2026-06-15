@@ -16,7 +16,7 @@ const ModeContext = createContext<ModeContextValue | null>(null);
  * app shell with the matching [data-mode] attribute, which swaps the --accent token.
  */
 export function ModeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = usePersistentState<Mode>("spinder.mode", "MUSIC");
+  const [mode, setMode] = usePersistentState<Mode>("spynder.mode", "MUSIC");
   const value = useMemo(() => ({ mode, setMode }), [mode, setMode]);
 
   return (

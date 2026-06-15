@@ -4,7 +4,7 @@ Guidance for Claude Code (and other AI assistants) working in this repository.
 
 ## What this is
 
-**Spinder** is a "can't-decide" app: one tap suggests a random **song**, **movie**,
+**Spynder** is a "can't-decide" app: one tap suggests a random **song**, **movie**,
 **series**, or **book**, optionally narrowed by genre, vibe, or a free-text mood. It's a single
 **Next.js 15** (App Router) application that bundles the React frontend and a GraphQL
 backend in one Node process, backed by **MySQL** via **Prisma**.

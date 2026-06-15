@@ -1,4 +1,4 @@
-# 🎲 Spinder
+# 🎲 Spynder
 
 A *can't-decide* app. One tap suggests a **random song**, **movie**, or **series**.
 Too random? Narrow it by **genre**, **vibe**, or just describe your mood in the
@@ -22,7 +22,7 @@ Built as a small but production-shaped full-stack app.
 
 ## Project description
 
-Spinder solves a tiny but universal problem: *"I want to listen to / watch something,
+Spynder solves a tiny but universal problem: *"I want to listen to / watch something,
 but I can't decide what."* Pick a mode — **Music** or **Movies & TV** — and tap
 **Surprise Me** to get a single, instant recommendation. If a fully random pick is too
 much of a gamble, open **Customize** to narrow it down with **genre** and **vibe** chips
@@ -74,7 +74,7 @@ npm run db:setup            # = prisma db push && prisma db seed
 npm run dev
 ```
 
-> **No Docker?** Use any MySQL 8 server instead: create a `spinder` database, set
+> **No Docker?** Use any MySQL 8 server instead: create a `spynder` database, set
 > `DATABASE_URL` in `.env` to its connection string, then run steps 4–5. Skip step 3.
 
 Stop / reset the database:
@@ -88,7 +88,7 @@ Open **http://localhost:3000**.
 The GraphQL endpoint (and Apollo sandbox in dev) lives at **http://localhost:3000/api/graphql**.
 
 Browse the database at **http://localhost:8080** (Adminer):
-System **MySQL** · Server **mysql** · Username **root** · Password **spinder** · Database **spinder**.
+System **MySQL** · Server **mysql** · Username **root** · Password **spynder** · Database **spynder**.
 
 ### Useful scripts
 

@@ -1,4 +1,4 @@
-# Spinder — Architecture & how it works
+# Spynder — Architecture & how it works
 
 This document explains, step by step, how the app is structured and how a single
 "Surprise Me" tap travels through the whole stack.
@@ -180,7 +180,7 @@ Accounts are handled inside the same GraphQL API, with logic in `auth.service.ts
 
 - **Passwords** are hashed with `bcryptjs`; never stored or returned in plaintext.
 - **Sessions** are a signed **JWT** (`jsonwebtoken`, secret `AUTH_SECRET`) stored in an
-  **httpOnly, SameSite=Lax cookie** (`spinder_token`) — not readable by JS, set/cleared
+  **httpOnly, SameSite=Lax cookie** (`spynder_token`) — not readable by JS, set/cleared
   via `next/headers` `cookies()` in `src/lib/auth.ts`.
 - **Context** (`graphql/context.ts`) reads the cookie on every request, verifies the
   token, and loads `ctx.user` so resolvers know who's calling.

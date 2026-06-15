@@ -22,9 +22,9 @@ function getTransport() {
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string) {
   const info = await getTransport().sendMail({
-    from: EMAIL_FROM || `Spinder <${SMTP_USER}>`,
+    from: EMAIL_FROM || `Spynder <${SMTP_USER}>`,
     to,
-    subject: "Reset your Spinder password",
+    subject: "Reset your Spynder password",
     text: `Reset your password using this link (valid for 30 minutes):\n\n${resetUrl}\n\nIf you didn't request this, you can ignore this email.`,
     html: `
       <div style="font-family:system-ui,sans-serif;max-width:480px;margin:auto">

@@ -1,4 +1,4 @@
-// Spinder data model — MySQL via Prisma.
+// Spynder data model — MySQL via Prisma.
 // Genres/vibes/providers are stored as JSON arrays (MySQL has no scalar lists),
 // which keeps the schema small while remaining query-friendly at this scale.
 

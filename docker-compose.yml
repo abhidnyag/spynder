@@ -4,31 +4,31 @@
 #   docker compose down -v     # stop it and DELETE all data
 #
 # MySQL matches the DATABASE_URL in .env.example:
-#   mysql://root:spinder@localhost:3306/spinder
+#   mysql://root:spynder@localhost:3306/spynder
 # Adminer (browse the DB) runs at http://localhost:8080
-#   System: MySQL · Server: mysql · Username: root · Password: spinder · Database: spinder
+#   System: MySQL · Server: mysql · Username: root · Password: spynder · Database: spynder
 
 services:
   mysql:
     image: mysql:8.4
-    container_name: spinder-mysql
+    container_name: spynder-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: spinder
-      MYSQL_DATABASE: spinder
+      MYSQL_ROOT_PASSWORD: spynder
+      MYSQL_DATABASE: spynder
     ports:
       - "3306:3306"
     volumes:
-      - spinder-mysql-data:/var/lib/mysql
+      - spynder-mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pspinder"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pspynder"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   adminer:
     image: adminer:5
-    container_name: spinder-adminer
+    container_name: spynder-adminer
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -39,4 +39,4 @@ services:
         condition: service_healthy
 
 volumes:
-  spinder-mysql-data:
+  spynder-mysql-data:

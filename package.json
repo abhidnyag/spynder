@@ -1,8 +1,8 @@
 {
-  "name": "spinder",
+  "name": "spynder",
   "version": "1.0.0",
   "private": true,
-  "description": "Spinder — a can't-decide app that suggests a random song, movie, or series.",
+  "description": "Spynder — a can't-decide app that suggests a random song, movie, or series.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
