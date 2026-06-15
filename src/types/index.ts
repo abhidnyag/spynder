@@ -7,6 +7,11 @@ export interface User {
   createdAt?: string;
 }
 
+export interface WatchLink {
+  name: string;
+  url: string;
+}
+
 export interface Suggestion {
   id: string;
   mode: Mode;
@@ -21,6 +26,8 @@ export interface Suggestion {
   genres: string[];
   vibes: string[];
   providers: string[];
+  providerUrl: string | null;
+  watchLinks: WatchLink[];
   url: string | null;
   imageUrl: string | null;
   previewUrl: string | null;

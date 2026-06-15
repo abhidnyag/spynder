@@ -18,6 +18,7 @@ export function toSuggestionDTO(s: Suggestion) {
     genres: (s.genres as string[]) ?? [],
     vibes: (s.vibes as string[]) ?? [],
     providers: (s.providers as string[]) ?? [],
+    watchLinks: (s.watchLinks as { name: string; url: string }[]) ?? [],
     cast: (s.cast as string[]) ?? [],
   };
 }
@@ -53,6 +54,8 @@ async function persist(prisma: PrismaClient, ext: ExternalSuggestion, userId: st
     genres: ext.genres,
     vibes: ext.vibes,
     providers: ext.providers,
+    providerUrl: ext.providerUrl ?? null,
+    watchLinks: ext.watchLinks ?? [],
     url: ext.url,
     imageUrl: ext.imageUrl,
     previewUrl: ext.previewUrl,
@@ -94,11 +97,16 @@ export async function getRandomSuggestion(
   mode: Mode,
   filter?: SuggestionFilter | null,
   userId: string | null = null,
+  region?: string | null,
 ) {
   const recent = await recentlyPickedIds(prisma, mode, userId);
 
   const fetchExternal = () =>
-    mode === "MUSIC" ? getRandomTrack(filter) : mode === "BOOK" ? getRandomBook(filter) : getRandomTitle(filter);
+    mode === "MUSIC"
+      ? getRandomTrack(filter)
+      : mode === "BOOK"
+        ? getRandomBook(filter)
+        : getRandomTitle(filter, region ?? undefined);
 
   try {
     // Whole live attempt (initial pick + re-rolls) is time-boxed so a slow API

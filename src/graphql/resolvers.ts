@@ -24,9 +24,9 @@ export const resolvers = {
 
     randomSuggestion: (
       _p: unknown,
-      args: { mode: Mode; filter?: SuggestionFilter },
+      args: { mode: Mode; filter?: SuggestionFilter; region?: string },
       ctx: GraphQLContext,
-    ) => getRandomSuggestion(ctx.prisma, args.mode, args.filter, ctx.user?.id ?? null),
+    ) => getRandomSuggestion(ctx.prisma, args.mode, args.filter, ctx.user?.id ?? null, args.region),
 
     history: (_p: unknown, args: { mode?: Mode }, ctx: GraphQLContext) =>
       getHistory(ctx.prisma, args.mode, ctx.user?.id ?? null),

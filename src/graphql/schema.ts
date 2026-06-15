@@ -21,6 +21,12 @@ export const typeDefs = gql`
     devToken: String
   }
 
+  "A streaming service plus a direct deep link to this title on it."
+  type WatchLink {
+    name: String!
+    url: String!
+  }
+
   type Suggestion {
     id: ID!
     mode: Mode!
@@ -35,6 +41,10 @@ export const typeDefs = gql`
     genres: [String!]!
     vibes: [String!]!
     providers: [String!]!
+    "Region-specific where-to-watch link for the providers (movies/series)."
+    providerUrl: String
+    "Direct per-platform deep links into each streaming service (movies/series)."
+    watchLinks: [WatchLink!]!
     url: String
     imageUrl: String
     previewUrl: String
@@ -64,8 +74,8 @@ export const typeDefs = gql`
   type Query {
     "The currently signed-in user, or null."
     me: User
-    "Return one random suggestion for the mode, narrowed by the optional filter."
-    randomSuggestion(mode: Mode!, filter: SuggestionFilter): Suggestion
+    "Return one random suggestion for the mode, narrowed by the optional filter. region (ISO 3166-1 country code) tailors movie/series streaming providers to the viewer's country."
+    randomSuggestion(mode: Mode!, filter: SuggestionFilter, region: String): Suggestion
     "Recent spins for the signed-in user, newest first, optionally limited to one mode."
     history(mode: Mode): [HistoryEntry!]!
     "The signed-in user's favourited suggestions."

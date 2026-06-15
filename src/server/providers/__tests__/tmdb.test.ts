@@ -77,3 +77,36 @@ describe("getRandomTitle — a typed vibe", () => {
     expect(calls.some((u) => u.includes("/search/movie") || u.includes("/search/tv"))).toBe(false);
   });
 });
+
+describe("getRandomTitle — region-aware providers", () => {
+  const watchProviders = {
+    results: {
+      US: { link: "https://tmdb/watch?locale=US", flatrate: [{ provider_name: "Netflix" }] },
+      IN: { link: "https://tmdb/watch?locale=IN", flatrate: [{ provider_name: "JioHotstar" }] },
+    },
+  };
+
+  const mockDetails = () =>
+    mockFetch((url) => {
+      if (url.includes("/genre/movie/list")) return jsonOk(GENRES);
+      if (url.includes("/discover/movie"))
+        return jsonOk({ total_pages: 1, results: [{ id: 5, title: "T", vote_average: 8, overview: "x", poster_path: null, release_date: "2020" }] });
+      if (url.includes("append_to_response"))
+        return jsonOk({ id: 5, title: "T", vote_average: 8, overview: "", genres: [], release_date: "2020", "watch/providers": watchProviders });
+      return undefined;
+    });
+
+  it("surfaces the requested region's providers and watch link", async () => {
+    mockDetails();
+    const s = await getRandomTitle({ type: "movie" }, "IN");
+    expect(s.providers).toEqual(["JioHotstar"]);
+    expect(s.providerUrl).toBe("https://tmdb/watch?locale=IN");
+  });
+
+  it("falls back to US when the title isn't listed in the region", async () => {
+    mockDetails();
+    const s = await getRandomTitle({ type: "movie" }, "FR");
+    expect(s.providers).toEqual(["Netflix"]);
+    expect(s.providerUrl).toBe("https://tmdb/watch?locale=US");
+  });
+});

@@ -15,6 +15,10 @@ export interface ExternalSuggestion {
   genres: string[];
   vibes: string[];
   providers: string[];
+  // Where-to-watch link for the providers (region-specific); null when none applies.
+  providerUrl?: string | null;
+  // Direct per-platform deep links (movies/series via Watchmode); empty when none.
+  watchLinks?: { name: string; url: string }[];
   url: string | null;
   imageUrl: string | null;
   previewUrl: string | null;

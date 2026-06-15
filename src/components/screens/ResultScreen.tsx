@@ -7,7 +7,7 @@ import { RANDOM_SUGGESTION, RECORD_HISTORY, TOGGLE_FAVORITE } from "@/graphql/op
 import { useMode } from "@/context/ModeContext";
 import { useAuth } from "@/context/AuthContext";
 import type { Mode } from "@/lib/taxonomy";
-import type { Suggestion, SuggestionFilter } from "@/types";
+import type { Suggestion, SuggestionFilter, WatchLink } from "@/types";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
@@ -16,14 +16,32 @@ import { usePersistentState } from "@/lib/usePersistentState";
 
 const openLink = (url: string | null) => url && window.open(url, "_blank", "noopener,noreferrer");
 
+/**
+ * The viewer's country as an ISO 3166-1 code, read from their browser locale
+ * (e.g. "en-IN" → "IN"), so TMDB surfaces the streaming services available where
+ * they are. Defaults to "US" when the region can't be determined.
+ */
+function detectRegion(): string {
+  if (typeof navigator === "undefined") return "US";
+  try {
+    const region = new Intl.Locale(navigator.language).region;
+    if (region) return region.toUpperCase();
+  } catch {
+    /* fall through to manual parse */
+  }
+  return (navigator.language.split("-")[1] ?? "US").toUpperCase();
+}
+
 export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionFilter }) {
   const { setMode } = useMode();
   const { user } = useAuth();
   const router = useRouter();
   useEffect(() => setMode(mode), [mode, setMode]);
+  // Resolved once from the browser locale; tailors movie/series providers to the viewer's country.
+  const [region] = useState(detectRegion);
 
   const { data, loading, refetch } = useQuery<{ randomSuggestion: Suggestion | null }>(RANDOM_SUGGESTION, {
-    variables: { mode, filter },
+    variables: { mode, filter, region },
     notifyOnNetworkStatusChange: true,
   });
   const [record] = useMutation(RECORD_HISTORY);
@@ -220,15 +238,7 @@ function MovieResult({ s, onFav, onSkip, onSpin }: ResultProps) {
       <Credits director={s.director} cast={s.cast} />
       {s.synopsis && <p className="mt-4 line-clamp-4 text-[13px] leading-relaxed text-sub">{s.synopsis}</p>}
 
-      {s.providers.length > 0 && (
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {s.providers.map((p) => (
-            <span key={p} className="rounded-lg border border-line px-3 py-1.5 text-[11px] font-semibold text-sub">
-              {p}
-            </span>
-          ))}
-        </div>
-      )}
+      <Providers items={s.providers} links={s.watchLinks} />
 
       <ActionRow actions={[
         { icon: s.isFavorite ? "heartFilled" : "heart", label: s.isFavorite ? "Saved" : "Watchlist", onClick: onFav, active: s.isFavorite },
@@ -256,15 +266,7 @@ function BookResult({ s, onFav, onSkip, onSpin }: ResultProps) {
       <MetaChips items={s.genres} />
       {s.synopsis && <p className="mt-4 line-clamp-4 text-[13px] leading-relaxed text-sub">{s.synopsis}</p>}
 
-      {s.providers.length > 0 && (
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {s.providers.map((p) => (
-            <span key={p} className="rounded-lg border border-line px-3 py-1.5 text-[11px] font-semibold text-sub">
-              {p}
-            </span>
-          ))}
-        </div>
-      )}
+      <Providers items={s.providers} links={s.watchLinks} />
 
       <ActionRow actions={[
         { icon: s.isFavorite ? "heartFilled" : "heart", label: s.isFavorite ? "Saved" : "Reading list", onClick: onFav, active: s.isFavorite },
@@ -342,6 +344,49 @@ function MetaChips({ items }: { items: (string | number | null)[] }) {
   );
 }
 
+// Match a provider label to a Watchmode service whose names can differ slightly
+// (e.g. "Disney+" vs "Disney Plus") by comparing on alphanumerics only.
+const normalizeProvider = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * Where-to-watch chips. When Watchmode resolved a direct deep link for a service
+ * the chip becomes a link straight to this title on that platform; services
+ * without one stay as plain labels (TMDB only gives us names, not links).
+ */
+function Providers({ items, links }: { items: string[]; links: WatchLink[] }) {
+  if (!items.length) return null;
+  const chipClass = "rounded-lg border border-line px-3 py-1.5 text-[11px] font-semibold text-sub";
+  const linkFor = (name: string) => {
+    const n = normalizeProvider(name);
+    return links.find((l) => {
+      const ln = normalizeProvider(l.name);
+      return ln === n || ln.includes(n) || n.includes(ln);
+    })?.url ?? null;
+  };
+  return (
+    <div className="mt-4 flex flex-wrap justify-center gap-2">
+      {items.map((p) => {
+        const href = linkFor(p);
+        return href ? (
+          <a
+            key={p}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${chipClass} transition hover:border-accent hover:text-accent active:scale-95`}
+          >
+            {p}
+          </a>
+        ) : (
+          <span key={p} className={chipClass}>
+            {p}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Director + top-billed cast for a movie/series, shown under the genre chips. */
 function Credits({ director, cast }: { director: string | null; cast: string[] | null }) {
   const rows = [
@@ -365,19 +410,35 @@ function ActionRow({ actions }: { actions: Action[] }) {
   return (
     <div className="mt-5 flex w-full gap-2.5">
       {actions.map((a) => (
-        <button
-          key={a.label}
-          onClick={a.onClick}
-          className={`flex flex-1 flex-col items-center gap-1.5 rounded-xl border py-3 text-xs font-semibold transition-[transform,background-color] duration-100 active:scale-95 active:bg-surface-2 ${
-            a.active ? "border-accent text-accent" : "border-line text-sub"
-          }`}
-        >
-          {/* keyed so toggling to "active" (e.g. favourited) replays the pop */}
-          <Icon key={a.active ? "on" : "off"} name={a.icon} size={18} className={a.active ? "animate-[pop_0.3s_ease]" : ""} />
-          {a.label}
-        </button>
+        <ActionButton key={a.label} action={a} />
       ))}
     </div>
+  );
+}
+
+function ActionButton({ action }: { action: Action }) {
+  // Bumped on every tap so the icon's pop replays each click (a mild bounce),
+  // mirroring the feedback the Favourite toggle already gives when it flips.
+  const [taps, setTaps] = useState(0);
+  return (
+    <button
+      onClick={() => {
+        setTaps((n) => n + 1);
+        action.onClick();
+      }}
+      className={`flex flex-1 flex-col items-center gap-1.5 rounded-xl border py-3 text-xs font-semibold transition-[transform,background-color,border-color,color] duration-100 hover:bg-surface-2 active:scale-95 active:bg-surface-2 ${
+        action.active ? "border-accent text-accent" : "border-line text-sub hover:border-accent hover:text-ink"
+      }`}
+    >
+      {/* Re-keyed on each tap (and on active flips) so the pop animation replays. */}
+      <Icon
+        key={`${action.active ? "on" : "off"}-${taps}`}
+        name={action.icon}
+        size={18}
+        className={action.active || taps > 0 ? "animate-[pop_0.3s_ease]" : ""}
+      />
+      {action.label}
+    </button>
   );
 }
 

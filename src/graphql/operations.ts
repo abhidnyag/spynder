@@ -16,6 +16,11 @@ const SUGGESTION_FIELDS = gql`
     genres
     vibes
     providers
+    providerUrl
+    watchLinks {
+      name
+      url
+    }
     url
     imageUrl
     previewUrl
@@ -80,8 +85,8 @@ export const RESET_PASSWORD = gql`
 
 export const RANDOM_SUGGESTION = gql`
   ${SUGGESTION_FIELDS}
-  query RandomSuggestion($mode: Mode!, $filter: SuggestionFilter) {
-    randomSuggestion(mode: $mode, filter: $filter) {
+  query RandomSuggestion($mode: Mode!, $filter: SuggestionFilter, $region: String) {
+    randomSuggestion(mode: $mode, filter: $filter, region: $region) {
       ...SuggestionFields
     }
   }

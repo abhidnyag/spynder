@@ -57,6 +57,8 @@ model Suggestion {
   genres    Json // string[]
   vibes     Json // string[]
   providers Json? // string[] — where to watch / listen
+  providerUrl String? // region-specific where-to-watch link (movies/series)
+  watchLinks  Json? // {name,url}[] — direct per-platform deep links (movies/series)
   url        String? // external link (Spotify / TMDB)
   imageUrl   String? // cover art / poster
   previewUrl String? // 30-sec audio preview (music)

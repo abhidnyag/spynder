@@ -7,6 +7,7 @@ import {
   rand,
 } from "./types";
 import { cachedPool, filterKey, isCacheableFilter } from "./cache";
+import { watchLinksForTmdb } from "./watchmode";
 
 const API = "https://api.themoviedb.org/3";
 const IMG = "https://image.tmdb.org/t/p/w500";
@@ -43,7 +44,9 @@ interface TmdbDetails extends TmdbResult {
   genres: { id: number; name: string }[];
   created_by?: { name: string }[]; // series creators
   credits?: { cast?: { name: string }[]; crew?: { job: string; name: string }[] };
-  "watch/providers"?: { results?: Record<string, { flatrate?: { provider_name: string }[] }> };
+  "watch/providers"?: {
+    results?: Record<string, { link?: string; flatrate?: { provider_name: string }[] }>;
+  };
   videos?: { results: TmdbVideo[] };
 }
 
@@ -197,18 +200,35 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
   return { kind, results };
 }
 
-/** A random movie or series from TMDB, narrowed by the filter when present. */
-export async function getRandomTitle(filter?: SuggestionFilter | null): Promise<ExternalSuggestion> {
+/**
+ * A random movie or series from TMDB, narrowed by the filter when present.
+ * `region` is an ISO 3166-1 country code (e.g. "IN", "GB") that selects which
+ * streaming services to surface; it falls back to US when the title isn't
+ * listed there.
+ */
+export async function getRandomTitle(
+  filter?: SuggestionFilter | null,
+  region = "US",
+): Promise<ExternalSuggestion> {
   const key = isCacheableFilter(filter) ? filterKey("MOVIE", filter) : null;
   const { kind, results } = await cachedPool(key, () => discoverPool(filter));
 
   const chosen = pick(results);
   // One details call (watch providers + videos + credits appended) fills runtime,
-  // where-to-watch, trailer, and the director + top cast.
-  const details = await fetchJson<TmdbDetails>(url(`/${kind}/${chosen.id}`, { append_to_response: "watch/providers,videos,credits" }));
+  // where-to-watch, trailer, and the director + top cast. In parallel, Watchmode
+  // resolves direct per-platform deep links (no-op without WATCHMODE_API_KEY).
+  const [details, watchLinks] = await Promise.all([
+    fetchJson<TmdbDetails>(url(`/${kind}/${chosen.id}`, { append_to_response: "watch/providers,videos,credits" })),
+    watchLinksForTmdb(chosen.id, kind, region),
+  ]);
 
   const date = details.release_date || details.first_air_date || "";
-  const providers = details["watch/providers"]?.results?.US?.flatrate?.map((p) => p.provider_name).slice(0, 3) ?? [];
+  // Prefer the viewer's region; fall back to US so a title without local
+  // listings still shows somewhere to watch.
+  const watch = details["watch/providers"]?.results ?? {};
+  const regional = watch[region.toUpperCase()] ?? watch.US;
+  const providers = regional?.flatrate?.map((p) => p.provider_name).slice(0, 3) ?? [];
+  const providerUrl = regional?.link ?? null;
   const cast = details.credits?.cast?.slice(0, 4).map((c) => c.name) ?? [];
 
   return {
@@ -225,6 +245,8 @@ export async function getRandomTitle(filter?: SuggestionFilter | null): Promise<
     genres: details.genres.map((g) => g.name).slice(0, 3),
     vibes: filter?.vibes ?? [],
     providers,
+    providerUrl,
+    watchLinks,
     url: `https://www.themoviedb.org/${kind}/${chosen.id}`,
     imageUrl: details.poster_path ? `${IMG}${details.poster_path}` : null,
     previewUrl: null,
