@@ -9,7 +9,7 @@ generator client {
 datasource db {
   provider     = "mysql"
   url          = env("DATABASE_URL")
-  // PlanetScale (Vitess) has no DB-level foreign keys; Prisma emulates relations.
+  // TiDB Cloud's foreign-key support is limited, so Prisma emulates relations.
   // This requires an explicit @@index on every foreign-key column (see below).
   relationMode = "prisma"
 }
