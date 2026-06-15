@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMode } from "@/context/ModeContext";
-import { TAXONOMY, type Mode } from "@/lib/taxonomy";
+import { TAXONOMY, DECADES, RATINGS, REGIONS, type Mode } from "@/lib/taxonomy";
 import { EMPTY_DRAFT, useCustomizeDraft, type MovieType } from "@/lib/useCustomizeDraft";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
@@ -19,7 +19,7 @@ export function CustomizeScreen() {
 
   // Filters persist per mode, so each tab reopens with its last selection.
   const [draft, setDraft] = useCustomizeDraft(mode);
-  const { type, genres, vibes, query } = draft;
+  const { type, genres, vibes, query, decade, minRating, country } = draft;
   const patch = (p: Partial<typeof draft>) => setDraft({ ...draft, ...p });
 
   const toggle = (key: "genres" | "vibes", value: string) => {
@@ -32,6 +32,9 @@ export function CustomizeScreen() {
     if (genres.length) params.set("genres", genres.join(","));
     if (vibes.length) params.set("vibes", vibes.join(","));
     if (query.trim()) params.set("q", query.trim());
+    if (decade) params.set("decade", String(decade));
+    if (minRating) params.set("rating", String(minRating));
+    if (country) params.set("country", country);
     if (mode === "MOVIE" && type !== "either") params.set("type", type);
     router.push(`/result?${params.toString()}`);
   };
@@ -61,6 +64,24 @@ export function CustomizeScreen() {
 
       <Section title="Vibe">
         <ChipGroup options={[...tax.vibes]} selected={vibes} onToggle={(v) => toggle("vibes", v)} />
+      </Section>
+
+      <Section title="Decade">
+        <SingleChipGroup options={DECADES} value={decade} onChange={(v) => patch({ decade: v })} />
+      </Section>
+
+      {RATINGS[mode].length > 0 && (
+        <Section title="Minimum rating">
+          <SingleChipGroup options={RATINGS[mode]} value={minRating} onChange={(v) => patch({ minRating: v })} />
+        </Section>
+      )}
+
+      <Section title="Region">
+        <SingleChipGroup
+          options={REGIONS.map((r) => ({ label: r.label, value: r.code }))}
+          value={country}
+          onChange={(v) => patch({ country: v })}
+        />
       </Section>
 
       <SuggestBox
@@ -100,3 +121,27 @@ const ChipGroup = ({ options, selected, onToggle }: { options: string[]; selecte
     ))}
   </div>
 );
+
+// Single-select chips (decade, rating, region): tapping the active chip clears it.
+function SingleChipGroup<T extends string | number>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { label: string; value: T }[];
+  value: T | null;
+  onChange: (v: T | null) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2.5">
+      {options.map((opt) => (
+        <Chip
+          key={String(opt.value)}
+          label={opt.label}
+          selected={value === opt.value}
+          onClick={() => onChange(value === opt.value ? null : opt.value)}
+        />
+      ))}
+    </div>
+  );
+}

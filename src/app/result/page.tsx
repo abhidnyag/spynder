@@ -14,6 +14,9 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
     ...(sp.genres ? { genres: sp.genres.split(",") } : {}),
     ...(sp.vibes ? { vibes: sp.vibes.split(",") } : {}),
     ...(sp.q ? { query: sp.q } : {}),
+    ...(sp.decade && Number(sp.decade) ? { decade: Number(sp.decade) } : {}),
+    ...(sp.rating && Number(sp.rating) ? { minRating: Number(sp.rating) } : {}),
+    ...(sp.country ? { country: sp.country } : {}),
   };
 
   return <ResultScreen mode={mode} filter={filter} />;

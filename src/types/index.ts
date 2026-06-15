@@ -49,4 +49,7 @@ export interface SuggestionFilter {
   genres?: string[];
   vibes?: string[];
   query?: string;
+  decade?: number;
+  minRating?: number;
+  country?: string;
 }

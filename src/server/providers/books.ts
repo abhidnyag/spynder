@@ -1,5 +1,6 @@
-import { type ExternalSuggestion, type SuggestionFilter, fetchJson, pick, pickFresh } from "./types";
+import { type ExternalSuggestion, type SuggestionFilter, fetchJson, pick, pickFresh, timeoutSignal } from "./types";
 import { cachedPool, filterKey, isCacheableFilter } from "./cache";
+import { regionLang } from "@/lib/taxonomy";
 
 // Open Library is fully free and keyless (no quota), so books work live out of the
 // box — unlike Spotify/TMDB. Its search `q` matches titles, authors AND subjects, so
@@ -39,8 +40,9 @@ interface OLResponse {
   docs?: OLDoc[];
 }
 
-function url(q: string, offset: number): string {
-  const params = new URLSearchParams({ q, fields: FIELDS, language: "eng", limit: String(PAGE), offset: String(offset) });
+function url(q: string, offset: number, lang = "eng", sort?: string): string {
+  const params = new URLSearchParams({ q, fields: FIELDS, language: lang, limit: String(PAGE), offset: String(offset) });
+  if (sort) params.set("sort", sort);
   return `${API}?${params}`;
 }
 
@@ -53,7 +55,9 @@ function buildQuery(filter?: SuggestionFilter | null): string {
   const genre = filter?.genres?.length ? pick(filter.genres) : null;
   const subject = genre ? `subject:"${SUBJECTS[genre] ?? genre}"` : "";
   const free = [...(filter?.vibes ?? []), filter?.query].filter(Boolean).join(" ").trim();
-  if (subject || free) return [subject, free].filter(Boolean).join(" ");
+  const year = filter?.decade ? `first_publish_year:[${filter.decade} TO ${filter.decade + 9}]` : "";
+  const parts = [subject, free, year].filter(Boolean);
+  if (parts.length) return parts.join(" ");
   return `subject:"${pick(Object.values(SUBJECTS))}"`;
 }
 
@@ -99,16 +103,27 @@ const isEstablished = (d: OLDoc): boolean =>
 /** Fetch a pool of candidate books for the filter (cached per query). */
 async function fetchDocs(filter?: SuggestionFilter | null): Promise<OLDoc[]> {
   const q = buildQuery(filter);
-  // A single request, no retry — Open Library is occasionally slow, and retrying a slow
-  // call just burns the budget; failing fast to the seed pick keeps the spin snappy.
-  const res = await fetchJson<OLResponse>(url(q, 0), undefined, 0);
+  // A year-range query under the default (relevance) sort scans millions of records
+  // and routinely exceeds the timeout (or errors). Sorting by readers ("readinglog")
+  // hits an index — fast AND returns recognisable in-decade books. Plain (no-decade)
+  // searches keep relevance ranking. The service grants books a larger budget, and a
+  // success caches the pool so re-spins are instant.
+  const sort = filter?.decade ? "readinglog" : undefined;
+  const res = await fetchJson<OLResponse>(url(q, 0, regionLang(filter?.country), sort), { signal: timeoutSignal(6000) }, 0);
   const all = (res.docs ?? []).filter((d) => d.title && d.key);
 
   // Keep relevance order, but drop obscure junk so a vibe returns real, recognisable
   // books. Fall back gradually so a niche query still returns something.
   const established = all.filter(isEstablished);
   const withCover = all.filter((d) => d.cover_i != null);
-  const docs = established.length >= 5 ? established : withCover.length >= 5 ? withCover : all;
+  let docs = established.length >= 5 ? established : withCover.length >= 5 ? withCover : all;
+
+  // Open Library can't filter by rating in the query, so apply it here. Keep the
+  // filtered set whenever it has anything; otherwise fall back (don't dead-end).
+  if (filter?.minRating) {
+    const rated = docs.filter((d) => (d.ratings_average ?? 0) >= filter.minRating!);
+    if (rated.length) docs = rated;
+  }
   if (docs.length === 0) throw new Error("Open Library returned no results");
   return docs;
 }

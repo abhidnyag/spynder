@@ -93,4 +93,26 @@ describe("getRandomBook", () => {
 
     expect(query).toMatch(/^subject:"/);
   });
+
+  it("filters by decade (query) and minimum rating (client-side)", async () => {
+    let query = "";
+    mockFetch((url) => {
+      if (url.includes("openlibrary.org/search.json")) {
+        query = qOf(url);
+        return jsonOk({
+          numFound: 2,
+          docs: [
+            { ...DOC, key: "/works/HIGH", ratings_average: 4.6 },
+            { ...DOC, key: "/works/LOW", ratings_average: 3.1 },
+          ],
+        });
+      }
+      return undefined;
+    });
+
+    const s = await getRandomBook({ genres: ["Sci-Fi"], decade: 1990, minRating: 4 });
+
+    expect(query).toContain("first_publish_year:[1990 TO 1999]");
+    expect(s.id).toBe("openlib:HIGH"); // only the 4.6 book clears the 4+ filter
+  });
 });

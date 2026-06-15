@@ -79,7 +79,7 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
         // Re-rolls ("Spin again"/"Skip") → skeleton in the shape of the next result.
         <ResultSkeleton mode={mode} />
       ) : !suggestion ? (
-        <p className="mt-20 text-center text-sub">No suggestions yet — try seeding the database.</p>
+        <EmptyState filter={filter} />
       ) : mode === "MUSIC" ? (
         <SongResult key={suggestion.id} s={suggestion} onFav={onFav} onSkip={onSkip} onSpin={spinAgain} />
       ) : mode === "BOOK" ? (
@@ -516,6 +516,29 @@ function SpinAgain({ onClick }: { onClick: () => void }) {
       <Icon key={rolls} name="dice" size={18} className={rolls > 0 ? "animate-[dice-roll_0.55s_ease]" : ""} />
       Spin again
     </Button>
+  );
+}
+
+/**
+ * Shown when no pick comes back. Distinguishes a too-narrow filter (the common
+ * case now that decade/rating/region are enforced) from a genuinely empty
+ * catalogue, so the user knows to widen rather than think the app is broken.
+ */
+function EmptyState({ filter }: { filter: SuggestionFilter }) {
+  const hasFilters = Boolean(
+    filter.decade ||
+      filter.minRating ||
+      filter.country ||
+      (filter.type && filter.type !== "either") ||
+      filter.genres?.length ||
+      filter.vibes?.length ||
+      (filter.query ?? "").trim(),
+  );
+  return (
+    <div role="status" className="mt-20 flex flex-col items-center gap-2 px-6 text-center">
+      <p className="text-sub">{hasFilters ? "No matches for these filters." : "No suggestions yet — try seeding the database."}</p>
+      {hasFilters && <p className="text-[13px] text-faint">Try removing one — e.g. the region or decade — then spin again.</p>}
+    </div>
   );
 }
 

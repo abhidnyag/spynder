@@ -7,7 +7,6 @@ import {
   fetchJson,
   pick,
   pickFresh,
-  rand,
   timeoutSignal,
   titleCase,
 } from "./types";
@@ -73,9 +72,9 @@ const auth = (token: string) => ({ headers: { Authorization: `Bearer ${token}` }
 // Spotify caps search `limit` at 10 for apps in development mode; higher values 400.
 const SEARCH_LIMIT = 10;
 
-async function searchTracks(token: string, q: string, offset: number): Promise<SpotifyTrack[]> {
+async function searchTracks(token: string, q: string, offset: number, market = "US"): Promise<SpotifyTrack[]> {
   const res = await fetch(
-    `${API}/search?type=track&market=US&limit=${SEARCH_LIMIT}&offset=${offset}&q=${encodeURIComponent(q)}`,
+    `${API}/search?type=track&market=${market}&limit=${SEARCH_LIMIT}&offset=${offset}&q=${encodeURIComponent(q)}`,
     { ...auth(token), signal: timeoutSignal() },
   );
   if (!res.ok) return []; // sparse result / throttle → caller retries at offset 0
@@ -139,16 +138,21 @@ const dedupeTracks = (rows: SpotifyTrack[]): SpotifyTrack[] => [...new Map(rows.
  * Build a track pool for a mood tag, widening with sibling tags when the tag's own
  * catalogue is thin (e.g. "study" returns only a handful) so "Spin again" keeps moving.
  */
-async function moodPool(token: string, tag: string): Promise<SpotifyTrack[]> {
-  // The two pages for the tag are independent — fetch them together.
-  const [a, b] = await Promise.all([
-    searchTracks(token, `genre:"${tag}"`, rand(20)),
-    searchTracks(token, `genre:"${tag}"`, 0),
-  ]);
-  let pool = dedupeTracks([...a, ...b]);
+// Pages (of SEARCH_LIMIT each) pulled per tag. A filtered spin caches this pool
+// for ~5 min, so it must be comfortably larger than RECENT_WINDOW (15) or
+// `pickFresh` runs out of fresh picks and starts repeating. 4 pages → up to ~40.
+const POOL_PAGES = 4;
+
+async function moodPool(token: string, tag: string, suffix = "", market = "US"): Promise<SpotifyTrack[]> {
+  // `suffix` carries an optional ` year:START-END` decade clause; `market` is the region.
+  // Page the tag in parallel (Spotify dev mode caps limit at 10, so variety = more pages).
+  const pages = await Promise.all(
+    Array.from({ length: POOL_PAGES }, (_, i) => searchTracks(token, `genre:"${tag}"${suffix}`, i * SEARCH_LIMIT, market)),
+  );
+  let pool = dedupeTracks(pages.flat());
   for (const sibling of SIBLING_TAGS[tag] ?? []) {
     if (pool.length >= 15) break;
-    pool = dedupeTracks([...pool, ...(await searchTracks(token, `genre:"${sibling}"`, 0))]);
+    pool = dedupeTracks([...pool, ...(await searchTracks(token, `genre:"${sibling}"${suffix}`, 0, market))]);
   }
   return pool;
 }
@@ -177,11 +181,16 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   const used = [...new Set(tags)].slice(0, 2);
   if (used.length === 0) used.push(pick(TAXONOMY.MUSIC.genres).toLowerCase());
 
+  // Decade → Spotify `year:` range (music has no rating, so minRating is ignored).
+  const yearSuffix = filter?.decade ? ` year:${filter.decade}-${filter.decade + 9}` : "";
+  // Region → Spotify market (track availability for that country).
+  const market = filter?.country ?? "US";
+
   // Blend the (one or two) tag pools so a genre + mood request draws from both.
-  const pools = await Promise.all(used.map((t) => moodPool(token, t)));
+  const pools = await Promise.all(used.map((t) => moodPool(token, t, yearSuffix, market)));
   const items = dedupeTracks(pools.flat());
   // Last resort if the tag searches returned nothing (e.g. an unknown genre tag).
-  return items.length ? items : searchTracks(token, used.join(" "), 0);
+  return items.length ? items : searchTracks(token, `${used.join(" ")}${yearSuffix}`, 0, market);
 }
 
 /** A random track from Spotify, narrowed by the filter when present. */

@@ -80,6 +80,13 @@ The single backend entry point is the Apollo Server route handler at
   id (`spotify:<id>`, `tmdb:movie:<id>`) so the `HistoryEntry` foreign key stays valid.
 - **Every spin records history.** `getRandomSuggestion` writes a `suggested` history row;
   Save/Skip write via the `recordHistory` mutation.
+- **Accessibility is non-negotiable.** Whenever you add or change any HTML, JSX, or input
+  field, follow current accessibility standards (WCAG 2.1 AA and the WAI-ARIA Authoring
+  Practices). Use semantic elements, label every input (`<label>`/`aria-label`),
+  associate errors via `aria-describedby`, keep controls keyboard-operable with a visible
+  focus state, preserve sufficient color contrast, give icon-only buttons accessible
+  names, and add ARIA roles/attributes only when no native element fits. Keep this
+  knowledge up to date with evolving accessibility standards as the codebase changes.
 
 ## Environment
 

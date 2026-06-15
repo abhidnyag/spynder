@@ -110,3 +110,44 @@ describe("getRandomTitle — region-aware providers", () => {
     expect(s.providerUrl).toBe("https://tmdb/watch?locale=US");
   });
 });
+
+describe("getRandomTitle — decade & rating filters", () => {
+  it("constrains /discover by release-date window and vote_average floor", async () => {
+    let discover = "";
+    mockFetch((url) => {
+      if (url.includes("/genre/movie/list")) return jsonOk(GENRES);
+      if (url.includes("/discover/movie")) {
+        discover = url;
+        return jsonOk({ total_pages: 1, results: [{ id: 9, title: "X", vote_average: 8, overview: "", poster_path: null, release_date: "1995" }] });
+      }
+      if (url.includes("append_to_response"))
+        return jsonOk({ id: 9, title: "X", vote_average: 8, overview: "", genres: [], release_date: "1995" });
+      return undefined;
+    });
+
+    await getRandomTitle({ type: "movie", decade: 1990, minRating: 7 });
+
+    const qs = decodeURIComponent(discover);
+    expect(qs).toContain("primary_release_date.gte=1990-01-01");
+    expect(qs).toContain("primary_release_date.lte=1999-12-31");
+    expect(qs).toContain("vote_average.gte=7");
+  });
+
+  it("restricts discover to an origin country", async () => {
+    let discover = "";
+    mockFetch((url) => {
+      if (url.includes("/genre/movie/list")) return jsonOk(GENRES);
+      if (url.includes("/discover/movie")) {
+        discover = url;
+        return jsonOk({ total_pages: 1, results: [{ id: 3, title: "K", vote_average: 8, overview: "", poster_path: null, release_date: "2018" }] });
+      }
+      if (url.includes("append_to_response"))
+        return jsonOk({ id: 3, title: "K", vote_average: 8, overview: "", genres: [], release_date: "2018" });
+      return undefined;
+    });
+
+    await getRandomTitle({ type: "movie", country: "KR" });
+
+    expect(decodeURIComponent(discover)).toContain("with_origin_country=KR");
+  });
+});

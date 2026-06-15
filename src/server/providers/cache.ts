@@ -18,7 +18,15 @@ const MAX_ENTRIES = 200;
  * variety; only filtered spins — which a user repeats via "Spin again" — are cached.
  */
 export function isCacheableFilter(f?: SuggestionFilter | null): boolean {
-  return Boolean(f && ((f.genres?.length ?? 0) > 0 || (f.vibes?.length ?? 0) > 0 || (f.query ?? "").trim() !== ""));
+  return Boolean(
+    f &&
+      ((f.genres?.length ?? 0) > 0 ||
+        (f.vibes?.length ?? 0) > 0 ||
+        (f.query ?? "").trim() !== "" ||
+        f.decade != null ||
+        f.minRating != null ||
+        (f.country ?? "") !== ""),
+  );
 }
 
 /** Stable key for a (mode, filter) pair — order-insensitive for genres/vibes. */
@@ -28,6 +36,9 @@ export function filterKey(mode: string, f?: SuggestionFilter | null): string {
     genres: [...(f?.genres ?? [])].sort(),
     vibes: [...(f?.vibes ?? [])].sort(),
     query: (f?.query ?? "").trim().toLowerCase(),
+    decade: f?.decade ?? 0,
+    minRating: f?.minRating ?? 0,
+    country: f?.country ?? "",
   };
   return `${mode}:${JSON.stringify(norm)}`;
 }

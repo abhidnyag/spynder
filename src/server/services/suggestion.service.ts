@@ -9,6 +9,9 @@ export interface SuggestionFilter {
   genres?: string[] | null;
   vibes?: string[] | null;
   query?: string | null;
+  decade?: number | null;
+  minRating?: number | null;
+  country?: string | null;
 }
 
 /**
@@ -86,6 +89,9 @@ const RECENT_WINDOW = 15;
 const PROVIDER_RETRIES = 2;
 // Hard ceiling on live-provider work per spin; past this we serve the seed instantly.
 const PROVIDER_BUDGET_MS = 4000;
+// Open Library's filtered queries (decade/language) are slow on a cold cache —
+// often 3–5s — so books get a larger budget; once cached the next spins are instant.
+const BOOK_PROVIDER_BUDGET_MS = 8000;
 
 /** The ids most recently shown for this mode + user, so "Spin again" can skip them. */
 async function recentlyPickedIds(prisma: PrismaClient, mode: Mode, userId: string | null): Promise<Set<string>> {
@@ -129,7 +135,7 @@ export async function getRandomSuggestion(
         for (let i = 0; i < PROVIDER_RETRIES && recent.has(e.id); i++) e = await fetchExternal();
         return e;
       })(),
-      PROVIDER_BUDGET_MS,
+      mode === "BOOK" ? BOOK_PROVIDER_BUDGET_MS : PROVIDER_BUDGET_MS,
     );
     return await persist(prisma, ext, userId);
   } catch (err) {
@@ -145,6 +151,11 @@ async function getRandomFromSeed(
   recent: Set<string>,
   userId: string | null,
 ) {
+  // A region filter relies on live-provider metadata (TMDB origin country / Spotify
+  // market) that the seed catalogue doesn't carry, so it can't be honoured offline.
+  // Return an honest empty state rather than an off-region pick.
+  if (filter?.country) return null;
+
   const candidates = await prisma.suggestion.findMany({
     where: {
       mode,
@@ -153,11 +164,20 @@ async function getRandomFromSeed(
     },
   });
 
-  let pool = candidates.filter(
+  const inDecade = (s: Suggestion) =>
+    !filter?.decade || (s.year != null && s.year >= filter.decade && s.year <= filter.decade + 9);
+  const meetsRating = (s: Suggestion) => !filter?.minRating || (s.rating != null && s.rating >= filter.minRating);
+
+  // Decade/rating are HARD constraints — never relaxed, or the fallback would
+  // serve picks that plainly contradict the filter. Genre/vibe/text are soft and
+  // widen if needed so an on-decade spin still returns something. (Country isn't
+  // in the seed model, so it's only honoured by the live providers.)
+  const hard = candidates.filter((s) => inDecade(s) && meetsRating(s));
+  let pool = hard.filter(
     (s) => overlaps(s.genres, filter?.genres) && overlaps(s.vibes, filter?.vibes) && matchesText(s, filter?.query),
   );
-  if (pool.length === 0) pool = candidates;
-  if (pool.length === 0) return null;
+  if (pool.length === 0) pool = hard;
+  if (pool.length === 0) return null; // nothing in the seed matches the decade/rating
 
   // Drop recently shown picks, unless that would leave nothing (pool exhausted).
   const fresh = pool.filter((s) => !recent.has(s.id));

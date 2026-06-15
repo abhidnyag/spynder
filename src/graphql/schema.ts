@@ -69,6 +69,12 @@ export const typeDefs = gql`
     genres: [String!]
     vibes: [String!]
     query: String
+    "Start year of a decade to restrict to, e.g. 1990 → 1990–1999."
+    decade: Int
+    "Minimum rating on the mode's native scale (movies/series 0–10, books 0–5)."
+    minRating: Float
+    "ISO 3166-1 region/country code: TMDB origin country, Spotify market, or book language."
+    country: String
   }
 
   type Query {

@@ -163,4 +163,23 @@ describe("getRandomTrack — a typed vibe", () => {
     expect(queries).toContain('genre:"workout"');
     expect(queries.some((q) => /energetic/.test(q))).toBe(false);
   });
+
+  it("appends a year: range for a decade filter", async () => {
+    const queries: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        queries.push(decodeURIComponent(search(url).get("q") ?? ""));
+        return jsonOk({ tracks: { items: tracks(10, `p${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ genres: ["Pop"], decade: 1990 });
+
+    expect(queries.length).toBeGreaterThan(0);
+    expect(queries.every((q) => q === 'genre:"pop" year:1990-1999')).toBe(true);
+  });
 });

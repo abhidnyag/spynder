@@ -163,13 +163,24 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
   const kind = pickKind(filter?.type);
   const vibeText = [filter?.query, ...(filter?.vibes ?? [])].filter(Boolean).join(" ").trim();
 
+  // Decade → release-date window (date field differs for movies vs series);
+  // minRating → vote_average floor. Applied to every /discover query below.
+  const dateKey = kind === "tv" ? "first_air_date" : "primary_release_date";
+  const constraints: Record<string, string | number> = {};
+  if (filter?.decade) {
+    constraints[`${dateKey}.gte`] = `${filter.decade}-01-01`;
+    constraints[`${dateKey}.lte`] = `${filter.decade + 9}-12-31`;
+  }
+  if (filter?.minRating) constraints["vote_average.gte"] = filter.minRating;
+  if (filter?.country) constraints["with_origin_country"] = filter.country.toUpperCase();
+
   let results: TmdbResult[] = [];
   if (vibeText) {
     const [keywords, genres] = await Promise.all([
       keywordIds(vibeText),
       genreIds(kind, [...(filter?.genres ?? []), ...vibeGenreHints(vibeText)]),
     ]);
-    const base = { sort_by: "popularity.desc", "vote_count.gte": 40, include_adult: "false" };
+    const base = { sort_by: "popularity.desc", "vote_count.gte": 40, include_adult: "false", ...constraints };
     if (keywords.length) {
       const withKeywords = { ...base, with_keywords: keywords.join("|") };
       results = await discoverPage(kind, genres.length ? { ...withKeywords, with_genres: genres.join(",") } : withKeywords);
@@ -194,6 +205,7 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
       sort_by: "popularity.desc",
       "vote_count.gte": 200,
       include_adult: "false",
+      ...constraints,
       ...(genres.length ? { with_genres: genres.join(",") } : {}),
     });
   }
