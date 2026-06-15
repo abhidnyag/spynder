@@ -112,7 +112,7 @@ async function getSpotifyToken(): Promise<string | null> {
 }
 
 async function enrichSong(s: Seed): Promise<Seed> {
-  // Prefer a real Spotify track (matches the live music provider): Spotify art + link.
+  // Spotify only — match the live music provider (Spotify art + track link).
   const token = await getSpotifyToken();
   if (token) {
     try {
@@ -125,16 +125,11 @@ async function enrichSong(s: Seed): Promise<Seed> {
         return { ...s, imageUrl: t.album?.images?.[0]?.url ?? null, url: t.external_urls.spotify };
       }
     } catch {
-      /* fall through to the keyless fallback */
+      /* fall through */
     }
   }
-  // Fallback: iTunes cover art, but still a Spotify (search) link — never Apple Music.
-  const data = await getJson(`https://itunes.apple.com/search?term=${encodeURIComponent(`${s.title} ${s.artist}`)}&entity=song&limit=1`);
-  return {
-    ...s,
-    imageUrl: data?.results?.[0]?.artworkUrl100?.replace("100x100", "600x600") ?? null,
-    url: `https://open.spotify.com/search/${encodeURIComponent(`${s.title} ${s.artist}`)}`,
-  };
+  // Spotify API unavailable (e.g. rate-limited): keep a Spotify search link, no Apple art.
+  return { ...s, url: `https://open.spotify.com/search/${encodeURIComponent(`${s.title} ${s.artist}`)}`, imageUrl: null };
 }
 
 async function enrichBook(b: Seed): Promise<Seed> {
