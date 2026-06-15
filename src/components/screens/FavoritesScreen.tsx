@@ -53,6 +53,7 @@ export function FavoritesScreen() {
         <SegmentedControl<Tab>
           value={tab}
           onChange={setTab}
+          label="Filter saved by type"
           options={[
             { value: "ALL", label: "All" },
             { value: "MUSIC", label: "Music" },
@@ -64,7 +65,7 @@ export function FavoritesScreen() {
 
       <ul className="mt-4 flex-1">
         {loading ? (
-          <li className="py-10 text-center text-sub">Loading…</li>
+          <li role="status" className="py-10 text-center text-sub">Loading…</li>
         ) : items.length === 0 ? (
           <li className="py-10 text-center text-sm leading-relaxed text-faint">
             No favourites yet — tap the heart

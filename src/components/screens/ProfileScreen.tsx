@@ -20,7 +20,7 @@ export function ProfileScreen({ resetToken }: { resetToken?: string }) {
     <div className="flex flex-1 flex-col px-5 pt-3">
       <ScreenHeader title="Profile" />
       {loading ? (
-        <p className="mt-10 text-center text-sub">Loading…</p>
+        <p role="status" className="mt-10 text-center text-sub">Loading…</p>
       ) : user ? (
         <AccountView />
       ) : (
@@ -125,12 +125,14 @@ function AuthForms({ initialResetToken }: { initialResetToken?: string }) {
   return (
     <div className="mt-2">
       <p className="text-sm text-sub">Sign in to save picks and keep your history across devices.</p>
-      {notice && <p className="mt-3 text-[13px] text-accent">{notice}</p>}
+      {notice && <p role="status" className="mt-3 text-[13px] text-accent">{notice}</p>}
 
-      <div className="mt-4 flex gap-1 rounded-xl border border-line p-1">
+      <div role="group" aria-label="Log in or register" className="mt-4 flex gap-1 rounded-xl border border-line p-1">
         {(["login", "register"] as const).map((t) => (
           <button
             key={t}
+            type="button"
+            aria-pressed={tab === t}
             onClick={() => {
               setTab(t);
               setError(null);
@@ -169,7 +171,7 @@ function AuthForms({ initialResetToken }: { initialResetToken?: string }) {
             required
           />
         )}
-        {error && <p className="text-[13px] text-[#e57373]">{error}</p>}
+        {error && <p role="alert" className="text-[13px] text-[#e57373]">{error}</p>}
         <Button type="submit" disabled={busy} className="mt-2">
           {busy ? "Please wait…" : tab === "login" ? "Log in" : "Create account"}
         </Button>
@@ -177,6 +179,7 @@ function AuthForms({ initialResetToken }: { initialResetToken?: string }) {
 
       {tab === "login" && (
         <button
+          type="button"
           onClick={() => {
             setView("reset");
             setError(null);
@@ -261,26 +264,26 @@ function ResetForm({
       {step === 1 ? (
         <form onSubmit={sendLink} noValidate className="mt-5 space-y-3">
           <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" required />
-          {error && <p className="text-[13px] text-[#e57373]">{error}</p>}
+          {error && <p role="alert" className="text-[13px] text-[#e57373]">{error}</p>}
           <Button type="submit" disabled={busy} className="mt-2">
             {busy ? "Please wait…" : "Send reset link"}
           </Button>
         </form>
       ) : (
         <form onSubmit={submitReset} noValidate className="mt-5 space-y-3">
-          {info && <p className="text-[13px] text-accent">{info}</p>}
+          {info && <p role="status" className="text-[13px] text-accent">{info}</p>}
           <Field label="Reset token" value={token} onChange={setToken} required />
           <Field label="New password" type="password" value={password} onChange={setPassword} autoComplete="new-password" required />
           <p className="text-[11px] text-faint">At least 8 characters, including one special character (e.g. !@#$).</p>
           <Field label="Confirm password" type="password" value={confirm} onChange={setConfirm} autoComplete="new-password" required />
-          {error && <p className="text-[13px] text-[#e57373]">{error}</p>}
+          {error && <p role="alert" className="text-[13px] text-[#e57373]">{error}</p>}
           <Button type="submit" disabled={busy} className="mt-2">
             {busy ? "Please wait…" : "Update password"}
           </Button>
         </form>
       )}
 
-      <button onClick={onCancel} className="mt-4 w-full text-center text-[13px] text-sub underline-offset-2 hover:underline">
+      <button type="button" onClick={onCancel} className="mt-4 w-full text-center text-[13px] text-sub underline-offset-2 hover:underline">
         Back to log in
       </button>
     </div>

@@ -46,6 +46,7 @@ export function HomeScreen() {
         <SegmentedControl<Mode>
           value={mode}
           onChange={setMode}
+          label="What are you choosing?"
           options={[
             { value: "MUSIC", label: "Music" },
             { value: "MOVIE", label: "Movies" },
@@ -56,6 +57,7 @@ export function HomeScreen() {
 
       <div className="flex flex-1 flex-col items-center justify-center gap-6 sm:gap-8">
         <button
+          type="button"
           onClick={surprise}
           className="group grid size-[clamp(11rem,52vw,13rem)] place-items-center rounded-full border border-accent transition active:scale-95"
         >

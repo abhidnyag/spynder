@@ -1,4 +1,4 @@
-import { type ExternalSuggestion, type SuggestionFilter, fetchJson, pick } from "./types";
+import { type ExternalSuggestion, type SuggestionFilter, fetchJson, pick, pickFresh } from "./types";
 import { cachedPool, filterKey, isCacheableFilter } from "./cache";
 
 // Open Library is fully free and keyless (no quota), so books work live out of the
@@ -114,12 +114,15 @@ async function fetchDocs(filter?: SuggestionFilter | null): Promise<OLDoc[]> {
 }
 
 /** A random book from Open Library, narrowed by the filter when present. */
-export async function getRandomBook(filter?: SuggestionFilter | null): Promise<ExternalSuggestion> {
+export async function getRandomBook(
+  filter?: SuggestionFilter | null,
+  exclude?: Set<string> | null,
+): Promise<ExternalSuggestion> {
   const key = isCacheableFilter(filter) ? filterKey("BOOK", filter) : null;
   const docs = await cachedPool(key, () => fetchDocs(filter));
 
   // Mapping is pure, so a cached pool makes repeat "Spin again" picks instant.
-  const d = pick(docs);
+  const d = pickFresh(docs, (x) => `openlib:${x.key.replace(/^\/works\//, "")}`, exclude);
   return {
     id: `openlib:${d.key.replace(/^\/works\//, "")}`,
     mode: "BOOK",

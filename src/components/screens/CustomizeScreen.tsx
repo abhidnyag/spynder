@@ -45,6 +45,7 @@ export function CustomizeScreen() {
           <SegmentedControl<MovieType>
             value={type}
             onChange={(v) => patch({ type: v })}
+            label="Type"
             options={[
               { value: "movie", label: "Movie" },
               { value: "series", label: "Series" },

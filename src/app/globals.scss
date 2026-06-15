@@ -38,6 +38,26 @@
     color: var(--ink);
     -webkit-font-smoothing: antialiased;
   }
+  /* Visible keyboard focus for every interactive element (pointer clicks are
+     unaffected thanks to :focus-visible). Uses the active accent so it reads in
+     every mode. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  /* Screen-reader-only text (visually hidden but announced). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   /* Hide scrollbars inside the app column for an app-like feel */
   .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -85,6 +105,18 @@
     }
     100% {
       transform: scale(1);
+    }
+  }
+  /* "Spin again" dice: a full roll with a little bounce on each click */
+  @keyframes dice-roll {
+    0% {
+      transform: rotate(0) scale(1);
+    }
+    55% {
+      transform: rotate(310deg) scale(1.25);
+    }
+    100% {
+      transform: rotate(360deg) scale(1);
     }
   }
 }

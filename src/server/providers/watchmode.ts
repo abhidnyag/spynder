@@ -38,13 +38,21 @@ export async function watchLinksForTmdb(
   const key = process.env.WATCHMODE_API_KEY;
   if (!key) return [];
   try {
-    const sources = await fetchJson<WatchmodeSource[]>(
-      `${API}/title/${kind}-${tmdbId}/sources/?apiKey=${key}&regions=${region.toUpperCase()}`,
-    );
+    // The `regions` query param is a paid feature — free plans 400 on any region
+    // they don't have enabled. So we fetch every available region and prefer the
+    // viewer's locally, which works regardless of plan.
+    const sources = await fetchJson<WatchmodeSource[]>(`${API}/title/${kind}-${tmdbId}/sources/?apiKey=${key}`);
+
+    const want = region.toUpperCase();
+    const inRegion = sources.filter((s) => s.region?.toUpperCase() === want);
+    // Fall back to all regions when the title isn't listed in the viewer's
+    // (a free plan typically only exposes its base region).
+    const usable = inRegion.length ? inRegion : sources;
+
     // One link per service, preferring a streaming entry over a rent/buy one.
     const byName = new Map<string, { url: string; stream: boolean }>();
-    for (const s of sources) {
-      if (!s.web_url) continue;
+    for (const s of usable) {
+      if (!s.web_url || !/^https?:\/\//i.test(s.web_url)) continue; // skip "paid plans only" placeholders
       const stream = STREAM_TYPES.has(s.type);
       const existing = byName.get(s.name);
       if (!existing || (stream && !existing.stream)) byName.set(s.name, { url: s.web_url, stream });

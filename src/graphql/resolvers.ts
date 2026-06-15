@@ -1,6 +1,6 @@
 import type { Mode } from "@prisma/client";
 import type { GraphQLContext } from "./context";
-import { getRandomSuggestion, type SuggestionFilter } from "@/server/services/suggestion.service";
+import { getRandomSuggestion, getTrackPreview, type SuggestionFilter } from "@/server/services/suggestion.service";
 import { clearHistory, getHistory, recordHistory } from "@/server/services/history.service";
 import { getFavorites, isFavorite, toggleFavorite } from "@/server/services/favorite.service";
 import {
@@ -27,6 +27,8 @@ export const resolvers = {
       args: { mode: Mode; filter?: SuggestionFilter; region?: string },
       ctx: GraphQLContext,
     ) => getRandomSuggestion(ctx.prisma, args.mode, args.filter, ctx.user?.id ?? null, args.region),
+
+    trackPreview: (_p: unknown, args: { id: string }) => getTrackPreview(args.id),
 
     history: (_p: unknown, args: { mode?: Mode }, ctx: GraphQLContext) =>
       getHistory(ctx.prisma, args.mode, ctx.user?.id ?? null),

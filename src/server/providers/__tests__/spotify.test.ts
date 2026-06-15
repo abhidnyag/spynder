@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getRandomTrack, SIBLING_TAGS, vibeGenreTag } from "../spotify";
+import { fetchTrackPreview, getRandomTrack, SIBLING_TAGS, vibeGenreTag } from "../spotify";
 import { clearCandidateCache } from "../cache";
 import { jsonOk, mockFetch } from "./fetchMock";
 
@@ -34,6 +34,22 @@ describe("vibeGenreTag", () => {
     expect(vibeGenreTag("Sad")).toBe("acoustic"); // not the junk "sad" tag
     expect(vibeGenreTag("Romantic")).toBe("jazz"); // not the junk "romance" tag
     expect(vibeGenreTag("xyzzy")).toBeNull();
+  });
+});
+
+describe("fetchTrackPreview (lazy)", () => {
+  it("scrapes the embed page for the 30-sec preview mp3 and unescapes the url", async () => {
+    mockFetch((url) =>
+      url.includes("/embed/track/abc")
+        ? { text: 'x{"audioPreview":{"url":"https:\\u002F\\u002Fp.scdn.co\\u002Fmp3\\u002Fx"}}y' }
+        : undefined,
+    );
+    expect(await fetchTrackPreview("abc")).toBe("https://p.scdn.co/mp3/x");
+  });
+
+  it("returns null when the page has no preview", async () => {
+    mockFetch(() => ({ text: "<html>no preview here</html>" }));
+    expect(await fetchTrackPreview("abc")).toBeNull();
   });
 });
 
@@ -105,14 +121,15 @@ describe("getRandomTrack — a typed vibe", () => {
     expect(queries.some((q) => q.includes("soul") || q.includes("lounge"))).toBe(false);
   });
 
-  it("respects an explicit genre chip (no mood override) and keeps the free text", async () => {
+  it("searches the genre chip as a tag and never appends the free text", async () => {
     const queries: string[] = [];
     mockFetch((url) => {
       const tok = tokenRoute(url);
       if (tok) return tok;
       if (url.includes("/search?type=track")) {
         queries.push(decodeURIComponent(search(url).get("q") ?? ""));
-        return jsonOk({ tracks: { items: tracks(10, "x") } });
+        // distinct ids per offset → a 20-track pool (≥ 15), so no sibling widening
+        return jsonOk({ tracks: { items: tracks(10, `x${search(url).get("offset")}_`) } });
       }
       if (url.includes("/artists/")) return jsonOk({ genres: [] });
       return undefined;
@@ -120,7 +137,30 @@ describe("getRandomTrack — a typed vibe", () => {
 
     await getRandomTrack({ genres: ["Jazz"], query: "smooth late night" });
 
-    expect(queries[0]).toBe('genre:"jazz" smooth late night');
-    expect(queries.some((q) => q.includes("soul") || q.includes("lounge"))).toBe(false);
+    // The descriptive words must never reach Spotify as keywords (that title-matched).
+    expect(queries.every((q) => q === 'genre:"jazz"')).toBe(true);
+    expect(queries.some((q) => /smooth|late|night/.test(q))).toBe(false);
+  });
+
+  it("blends a genre chip and a mood from the description into both tag pools", async () => {
+    const queries: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        const q = decodeURIComponent(search(url).get("q") ?? "");
+        queries.push(q);
+        return jsonOk({ tracks: { items: tracks(10, `${q}${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    // Rock chip + "energetic" (→ workout tag): both genre tags should be searched.
+    await getRandomTrack({ genres: ["Rock"], query: "energetic" });
+
+    expect(queries).toContain('genre:"rock"');
+    expect(queries).toContain('genre:"workout"');
+    expect(queries.some((q) => /energetic/.test(q))).toBe(false);
   });
 });

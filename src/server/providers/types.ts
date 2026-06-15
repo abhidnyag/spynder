@@ -41,6 +41,19 @@ export class ProviderUnavailable extends Error {
 /* ----------------------------- shared helpers ----------------------------- */
 export const rand = (n: number) => Math.floor(Math.random() * n);
 export const pick = <T>(arr: readonly T[]): T => arr[rand(arr.length)];
+
+/**
+ * Random element whose id isn't in `exclude` (recently-shown picks), so spins
+ * don't repeat until the pool is genuinely exhausted. Falls back to the full
+ * list when everything is excluded — the "not enough data" case.
+ */
+export const pickFresh = <T>(arr: readonly T[], id: (t: T) => string, exclude?: Set<string> | null): T => {
+  if (exclude?.size) {
+    const fresh = arr.filter((x) => !exclude.has(id(x)));
+    if (fresh.length) return fresh[rand(fresh.length)];
+  }
+  return arr[rand(arr.length)];
+};
 export const titleCase = (s: string) =>
   s.replace(/\b\w/g, (c) => c.toUpperCase());
 

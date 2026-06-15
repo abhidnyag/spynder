@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@apollo/client";
-import { RANDOM_SUGGESTION, RECORD_HISTORY, TOGGLE_FAVORITE } from "@/graphql/operations";
+import { RANDOM_SUGGESTION, RECORD_HISTORY, TOGGLE_FAVORITE, TRACK_PREVIEW } from "@/graphql/operations";
 import { useMode } from "@/context/ModeContext";
 import { useAuth } from "@/context/AuthContext";
-import type { Mode } from "@/lib/taxonomy";
+import { MODE_META, type Mode } from "@/lib/taxonomy";
 import type { Suggestion, SuggestionFilter, WatchLink } from "@/types";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Chip } from "@/components/ui/Chip";
@@ -73,6 +73,10 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
       <ScreenHeader title="Your pick" close />
 
       {loading && !suggestion ? (
+        // First load (e.g. "Surprise Me") → spinner.
+        <SpinLoader mode={mode} />
+      ) : loading ? (
+        // Re-rolls ("Spin again"/"Skip") → skeleton in the shape of the next result.
         <ResultSkeleton mode={mode} />
       ) : !suggestion ? (
         <p className="mt-20 text-center text-sub">No suggestions yet — try seeding the database.</p>
@@ -95,9 +99,12 @@ function SongResult({ s, onFav, onSkip, onSpin }: ResultProps) {
       <Media src={s.imageUrl} alt={s.title} icon="note" className="size-[clamp(11rem,52vw,13rem)]" />
       <h2 className="mt-5 text-2xl font-extrabold sm:text-3xl">{s.title}</h2>
       <p className="mt-1 text-sub">{s.artist}</p>
-      <MetaChips items={[...s.genres, ...s.vibes, s.year]} />
+      {/* Year (and any vibe chips) keep their original chip styling; genres —
+          pulled from Spotify's artist data — sit on their own row just below. */}
+      <MetaChips items={[...s.vibes, s.year]} />
+      <MetaChips items={s.genres} />
 
-      {s.previewUrl ? <PreviewPlayer src={s.previewUrl} /> : <NoPreviewBar url={s.url} />}
+      <MusicPreview s={s} />
 
       <ActionRow actions={[
         { icon: s.isFavorite ? "heartFilled" : "heart", label: s.isFavorite ? "Saved" : "Save", onClick: onFav, active: s.isFavorite },
@@ -105,6 +112,38 @@ function SongResult({ s, onFav, onSkip, onSpin }: ResultProps) {
         { icon: "skip", label: "Skip", onClick: onSkip },
       ]} />
       <SpinAgain onClick={onSpin} />
+    </div>
+  );
+}
+
+/**
+ * The 30-sec preview, resolved lazily. Spotify omits `previewUrl` for newer apps,
+ * so we fetch it via `trackPreview` *after* the result is shown (the scrape is
+ * slow) — the player fills in a moment later rather than holding up the spin.
+ */
+function MusicPreview({ s }: { s: Suggestion }) {
+  const needLazy = !s.previewUrl && s.source === "spotify";
+  const { data, loading } = useQuery<{ trackPreview: string | null }>(TRACK_PREVIEW, {
+    variables: { id: s.id },
+    skip: !needLazy,
+  });
+  const src = s.previewUrl ?? data?.trackPreview ?? null;
+  if (src) return <PreviewPlayer src={src} />;
+  if (needLazy && loading) return <PreviewLoadingBar />;
+  return <NoPreviewBar url={s.url} />;
+}
+
+function PreviewLoadingBar() {
+  return (
+    <div role="status" className="mt-6 flex w-full items-center gap-3 rounded-2xl border border-line bg-surface p-3">
+      <span className="grid h-12 w-12 flex-none place-items-center rounded-full bg-surface-2">
+        <Icon name="note" size={18} className="animate-pulse text-accent" />
+      </span>
+      <div className="flex-1 space-y-2">
+        <div className="h-2.5 w-24 animate-pulse rounded bg-surface-2" />
+        <div className="h-2 w-16 animate-pulse rounded bg-surface-2" />
+      </div>
+      <span className="text-[10px] text-faint">Loading preview…</span>
     </div>
   );
 }
@@ -140,6 +179,7 @@ function PreviewPlayer({ src }: { src: string }) {
     <div className="mt-6 w-full rounded-2xl border border-line bg-surface p-3">
       <div className="flex items-center gap-3">
         <button
+          type="button"
           onClick={toggle}
           aria-label={playing ? "Pause" : "Play preview"}
           className="grid h-12 w-12 flex-none place-items-center rounded-full bg-accent text-white transition duration-100 active:scale-90 active:brightness-110"
@@ -166,7 +206,7 @@ function PreviewPlayer({ src }: { src: string }) {
       </div>
 
       <div className="mt-3 flex items-center gap-2">
-        <button onClick={() => setMuted((m) => !m)} aria-label={muted ? "Unmute" : "Mute"} className="flex-none text-sub transition active:scale-90">
+        <button type="button" onClick={() => setMuted((m) => !m)} aria-label={muted ? "Unmute" : "Mute"} className="flex-none text-sub transition active:scale-90">
           <Icon name={muted || volume === 0 ? "mute" : "volume"} size={18} />
         </button>
         <input
@@ -205,6 +245,7 @@ function PreviewPlayer({ src }: { src: string }) {
 function NoPreviewBar({ url }: { url: string | null }) {
   return (
     <button
+      type="button"
       onClick={() => openLink(url)}
       className="mt-6 flex w-full items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-left transition active:scale-[0.99]"
     >
@@ -279,11 +320,22 @@ function BookResult({ s, onFav, onSkip, onSpin }: ResultProps) {
 }
 
 function TrailerOverlay({ embedUrl, onClose }: { embedUrl: string; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  // Move focus into the dialog and let Escape close it (expected dialog behaviour).
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/85 p-4" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label="Trailer" className="fixed inset-0 z-30 flex items-center justify-center bg-black/85 p-4" onClick={onClose}>
       <div className="w-full max-w-app" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-end pb-2">
-          <button onClick={onClose} aria-label="Close trailer" className="text-sub">
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close trailer" className="text-sub">
             <Icon name="close" size={22} />
           </button>
         </div>
@@ -317,19 +369,23 @@ interface Action {
 }
 
 function Media({ src, alt, icon, className, onClick }: { src: string | null; alt: string; icon: IconName; className: string; onClick?: () => void }) {
-  return (
-    <div
-      onClick={onClick}
-      className={`mt-4 grid place-items-center overflow-hidden rounded-2xl border border-line bg-surface ${onClick ? "cursor-pointer" : ""} ${className}`}
-    >
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element -- remote art, sized by parent
-        <img src={src} alt={alt} className="h-full w-full object-cover" />
-      ) : (
-        <Icon name={icon} size={52} className="text-faint" />
-      )}
-    </div>
+  const inner = src ? (
+    // eslint-disable-next-line @next/next/no-img-element -- remote art, sized by parent
+    <img src={src} alt={alt} className="h-full w-full object-cover" />
+  ) : (
+    <Icon name={icon} size={52} className="text-faint" />
   );
+  const base = `mt-4 grid place-items-center overflow-hidden rounded-2xl border border-line bg-surface ${className}`;
+  // When tappable (movie/book poster → external page), render a real button so
+  // it's keyboard-focusable and activatable, not a click-only div.
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} aria-label={`Open ${alt}`} className={`${base} cursor-pointer transition active:scale-[0.99]`}>
+        {inner}
+      </button>
+    );
+  }
+  return <div className={base}>{inner}</div>;
 }
 
 function MetaChips({ items }: { items: (string | number | null)[] }) {
@@ -422,10 +478,12 @@ function ActionButton({ action }: { action: Action }) {
   const [taps, setTaps] = useState(0);
   return (
     <button
+      type="button"
       onClick={() => {
         setTaps((n) => n + 1);
         action.onClick();
       }}
+      aria-pressed={action.active}
       className={`flex flex-1 flex-col items-center gap-1.5 rounded-xl border py-3 text-xs font-semibold transition-[transform,background-color,border-color,color] duration-100 hover:bg-surface-2 active:scale-95 active:bg-surface-2 ${
         action.active ? "border-accent text-accent" : "border-line text-sub hover:border-accent hover:text-ink"
       }`}
@@ -442,19 +500,69 @@ function ActionButton({ action }: { action: Action }) {
   );
 }
 
-const SpinAgain = ({ onClick }: { onClick: () => void }) => (
-  <Button variant="outline" onClick={onClick} className="group mt-4">
-    <Icon name="dice" size={18} className="transition-transform duration-300 group-active:rotate-180" />
-    Spin again
-  </Button>
-);
-
-function ResultSkeleton({ mode }: { mode: Mode }) {
+function SpinAgain({ onClick }: { onClick: () => void }) {
+  // Re-keyed on each click so the dice replays its roll-and-bounce every spin
+  // (a single `active:` transition only fired while held and reverted on release).
+  const [rolls, setRolls] = useState(0);
   return (
-    <div className="flex flex-1 animate-pulse flex-col items-center pt-10">
-      <div className={`rounded-2xl bg-surface ${mode === "MUSIC" ? "h-52 w-52" : "h-56 w-40"}`} />
-      <div className="mt-6 h-6 w-44 rounded bg-surface" />
+    <Button
+      variant="outline"
+      onClick={() => {
+        setRolls((n) => n + 1);
+        onClick();
+      }}
+      className="mt-4"
+    >
+      <Icon key={rolls} name="dice" size={18} className={rolls > 0 ? "animate-[dice-roll_0.55s_ease]" : ""} />
+      Spin again
+    </Button>
+  );
+}
+
+/**
+ * Skeleton placeholder shaped like the upcoming result (square art for music,
+ * portrait poster for movies/books). Shown on the first load — e.g. "Surprise
+ * Me" — where there's no prior result to keep on screen.
+ */
+function ResultSkeleton({ mode }: { mode: Mode }) {
+  const art = mode === "MUSIC" ? "size-[clamp(11rem,52vw,13rem)]" : "h-[clamp(13rem,60vw,14rem)] w-[clamp(9.5rem,42vw,10rem)]";
+  return (
+    <div role="status" aria-label="Loading your pick" className="reveal flex flex-1 animate-pulse flex-col items-center pt-2">
+      <div className="h-3 w-32 rounded bg-surface" />
+      <div className={`mt-4 rounded-2xl bg-surface ${art}`} />
+      <div className="mt-5 h-6 w-48 rounded bg-surface" />
       <div className="mt-3 h-4 w-28 rounded bg-surface" />
+      <div className="mt-4 flex gap-2">
+        <div className="h-7 w-16 rounded-lg bg-surface" />
+        <div className="h-7 w-16 rounded-lg bg-surface" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Animated, mode-aware loader shown while a pick is being fetched. A live spin
+ * hits an external API (Spotify/TMDB/Open Library), which can take a second, so
+ * this gives clear "we're working on it" feedback — announced via role="status".
+ */
+function SpinLoader({ mode }: { mode: Mode }) {
+  const icon: IconName = mode === "MUSIC" ? "note" : mode === "BOOK" ? "book" : "popcorn";
+  return (
+    <div role="status" aria-live="polite" className="reveal flex flex-1 flex-col items-center justify-center gap-6 pb-20 text-center">
+      <div className="relative grid place-items-center">
+        {/* Expanding ring pulse behind the spinning dice. */}
+        <span className="absolute size-24 animate-ping rounded-full border border-accent opacity-25" />
+        <span className="grid size-20 place-items-center rounded-3xl border border-line bg-surface">
+          <Icon name="dice" size={32} className="animate-spin text-accent [animation-duration:1.1s]" />
+        </span>
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-bold">Finding your pick…</p>
+        <p className="flex items-center justify-center gap-1.5 text-[12px] text-faint">
+          <Icon name={icon} size={14} className="animate-pulse" />
+          Shuffling the {MODE_META[mode].label.toLowerCase()} catalogue
+        </p>
+      </div>
     </div>
   );
 }

@@ -30,11 +30,34 @@ describe("watchLinksForTmdb", () => {
     const links = await watchLinksForTmdb(42, "movie", "us");
 
     expect(requested).toContain("/title/movie-42/sources/");
-    expect(requested).toContain("regions=US");
+    // The `regions` param 400s on free plans, so it must not be sent.
+    expect(requested).not.toContain("regions=");
     expect(links).toEqual([
       { name: "Netflix", url: "https://netflix.com/title/1" },
       { name: "Apple TV", url: "https://tv.apple.com/buy/2" },
     ]);
+  });
+
+  it("prefers the viewer's region but falls back to all when it isn't listed", async () => {
+    process.env.WATCHMODE_API_KEY = "test-key";
+    mockFetch(() =>
+      jsonOk([
+        { source_id: 1, name: "Netflix", type: "sub", region: "IN", web_url: "https://netflix.com/in/1" },
+        { source_id: 2, name: "Hotstar", type: "sub", region: "IN", web_url: "https://hotstar.com/2" },
+      ]),
+    );
+
+    // US has no sources here → fall back to the (IN) ones rather than show nothing.
+    const links = await watchLinksForTmdb(42, "movie", "US");
+    expect(links.map((l) => l.name)).toEqual(["Netflix", "Hotstar"]);
+  });
+
+  it("skips placeholder URLs from paid-only fields", async () => {
+    process.env.WATCHMODE_API_KEY = "test-key";
+    mockFetch(() =>
+      jsonOk([{ source_id: 1, name: "Netflix", type: "sub", region: "US", web_url: "Deeplinks available for paid plans only." }]),
+    );
+    expect(await watchLinksForTmdb(42, "movie", "US")).toEqual([]);
   });
 
   it("fails soft to [] when the lookup errors", async () => {

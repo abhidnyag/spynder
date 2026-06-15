@@ -76,6 +76,8 @@ export const typeDefs = gql`
     me: User
     "Return one random suggestion for the mode, narrowed by the optional filter. region (ISO 3166-1 country code) tailors movie/series streaming providers to the viewer's country."
     randomSuggestion(mode: Mode!, filter: SuggestionFilter, region: String): Suggestion
+    "Lazily-resolved 30-sec Spotify preview mp3 for a music suggestion; null when none exists."
+    trackPreview(id: ID!): String
     "Recent spins for the signed-in user, newest first, optionally limited to one mode."
     history(mode: Mode): [HistoryEntry!]!
     "The signed-in user's favourited suggestions."

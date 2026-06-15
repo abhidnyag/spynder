@@ -4,6 +4,7 @@ import {
   ProviderUnavailable,
   fetchJson,
   pick,
+  pickFresh,
   rand,
 } from "./types";
 import { cachedPool, filterKey, isCacheableFilter } from "./cache";
@@ -209,11 +210,12 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
 export async function getRandomTitle(
   filter?: SuggestionFilter | null,
   region = "US",
+  exclude?: Set<string> | null,
 ): Promise<ExternalSuggestion> {
   const key = isCacheableFilter(filter) ? filterKey("MOVIE", filter) : null;
   const { kind, results } = await cachedPool(key, () => discoverPool(filter));
 
-  const chosen = pick(results);
+  const chosen = pickFresh(results, (r) => `tmdb:${kind}:${r.id}`, exclude);
   // One details call (watch providers + videos + credits appended) fills runtime,
   // where-to-watch, trailer, and the director + top cast. In parallel, Watchmode
   // resolves direct per-platform deep links (no-op without WATCHMODE_API_KEY).

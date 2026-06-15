@@ -92,6 +92,12 @@ export const RANDOM_SUGGESTION = gql`
   }
 `;
 
+export const TRACK_PREVIEW = gql`
+  query TrackPreview($id: ID!) {
+    trackPreview(id: $id)
+  }
+`;
+
 export const HISTORY = gql`
   ${SUGGESTION_FIELDS}
   query History($mode: Mode) {

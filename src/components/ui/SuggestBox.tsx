@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 interface SuggestBoxProps {
   label: string;
   placeholder: string;
@@ -9,13 +11,19 @@ interface SuggestBoxProps {
 
 /** Free-text "describe your mood" input used in the Customize screens. */
 export function SuggestBox({ label, placeholder, value, onChange, onSubmit }: SuggestBoxProps) {
+  const id = useId();
+  const hintId = `${id}-hint`;
   return (
-    <label className="block rounded-2xl border border-line bg-surface p-4">
-      <span className="text-xs text-sub">{label}</span>
+    <div className="rounded-2xl border border-line bg-surface p-4">
+      <label htmlFor={id} className="text-xs text-sub">
+        {label}
+      </label>
       <textarea
+        id={id}
         rows={2}
         value={value}
         placeholder={placeholder}
+        aria-describedby={hintId}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
@@ -23,9 +31,11 @@ export function SuggestBox({ label, placeholder, value, onChange, onSubmit }: Su
             onSubmit?.();
           }
         }}
-        className="mt-2 w-full resize-none border-b border-line bg-transparent pb-2 text-sm text-ink outline-none placeholder:text-faint"
+        className="mt-2 w-full resize-none border-b border-line bg-transparent pb-2 text-sm text-ink outline-none transition-colors focus:border-accent placeholder:text-faint"
       />
-      <span className="mt-2 block text-[11px] text-faint">Press Enter to spin · Shift+Enter for a new line</span>
-    </label>
+      <span id={hintId} className="mt-2 block text-[11px] text-faint">
+        Press Enter to spin · Shift+Enter for a new line
+      </span>
+    </div>
   );
 }

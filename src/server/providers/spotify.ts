@@ -6,6 +6,7 @@ import {
   ProviderUnavailable,
   fetchJson,
   pick,
+  pickFresh,
   rand,
   timeoutSignal,
   titleCase,
@@ -25,14 +26,16 @@ interface SpotifyTrack {
 
 /**
  * The Web API returns `preview_url: null` for apps created after Nov 2024, so we
- * fall back to the public embed page, which still exposes the 30-sec preview mp3.
+ * fall back to scraping the public embed page, which still exposes the 30-sec
+ * preview mp3. This scrape is the slow part of a music spin, so it's resolved
+ * *lazily* by the client (via the `trackPreview` query) after the result renders
+ * — the spin itself never waits on it.
  */
-async function resolvePreview(track: SpotifyTrack): Promise<string | null> {
-  if (track.preview_url) return track.preview_url;
+export async function fetchTrackPreview(trackId: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://open.spotify.com/embed/track/${track.id}`, {
+    const res = await fetch(`https://open.spotify.com/embed/track/${trackId}`, {
       headers: { "User-Agent": "Mozilla/5.0" },
-      signal: timeoutSignal(2500), // a best-effort scrape — don't let it stall the spin
+      signal: timeoutSignal(2500), // a best-effort scrape — don't let it stall
     });
     if (!res.ok) return null;
     const html = await res.text();
@@ -100,6 +103,21 @@ export function vibeGenreTag(text: string): string | null {
   return Object.entries(VIBE_GENRE_TAGS).find(([w]) => t.includes(w))?.[1] ?? null;
 }
 
+// Genre words a user might *type* (rather than pick as a chip) → Spotify genre tags,
+// so "some rock music" steers by genre instead of title-matching the word "rock".
+const MUSIC_GENRE_WORDS: Record<string, string> = {
+  pop: "pop", indie: "indie", "hip hop": "hip-hop", "hip-hop": "hip-hop", hiphop: "hip-hop", rap: "hip-hop",
+  rock: "rock", metal: "metal", punk: "punk", "lo-fi": "lo-fi", lofi: "lo-fi", jazz: "jazz",
+  electronic: "electronic", edm: "edm", house: "house", techno: "techno", "r&b": "r-n-b", rnb: "r-n-b",
+  soul: "soul", funk: "funk", country: "country", classical: "classical", piano: "piano",
+  folk: "folk", reggae: "reggae", blues: "blues", "k-pop": "k-pop", kpop: "k-pop", disco: "disco",
+};
+
+export function genreFromText(text: string): string | null {
+  const t = text.toLowerCase();
+  return Object.entries(MUSIC_GENRE_WORDS).find(([w]) => t.includes(w))?.[1] ?? null;
+}
+
 // Closely-related, mood-preserving tags used to widen a thin mood pool — all
 // verified to return on-mood tracks under client-credentials.
 export const SIBLING_TAGS: Record<string, string[]> = {
@@ -135,46 +153,58 @@ async function moodPool(token: string, tag: string): Promise<SpotifyTrack[]> {
   return pool;
 }
 
-/** Fetch a pool of candidate tracks for the filter (cached per query). */
+/**
+ * Fetch a pool of candidate tracks for the filter (cached per query).
+ *
+ * The filter is resolved entirely to genre/mood **tags** searched via
+ * `genre:"..."` — the raw descriptive text is *never* sent as keywords, because
+ * Spotify matches free text against track/artist/album *names*, which surfaced
+ * songs whose title contained the words rather than songs of that genre/mood.
+ */
 async function searchPool(token: string, filter?: SuggestionFilter | null): Promise<SpotifyTrack[]> {
   const free = [...(filter?.vibes ?? []), filter?.query].filter(Boolean).join(" ").trim();
-  // A vibe with no explicit genre chip → steer by the mapped mood tag (the tag
-  // captures the mood, so don't also title-match the descriptive text).
-  const moodTag = filter?.genres?.length ? null : free ? vibeGenreTag(free) : null;
-  const genre = filter?.genres?.length ? pick(filter.genres).toLowerCase() : moodTag ?? pick(TAXONOMY.MUSIC.genres).toLowerCase();
 
-  if (moodTag) return moodPool(token, moodTag);
+  const tags: string[] = [];
+  if (filter?.genres?.length) tags.push(pick(filter.genres).toLowerCase());
+  if (free) {
+    const textGenre = genreFromText(free); // a genre named in the description
+    if (textGenre) tags.push(textGenre);
+    const mood = vibeGenreTag(free); // a mood named in the description
+    if (mood) tags.push(mood);
+  }
+  // De-dupe, cap at two tags to keep relevance, and never dead-end on a fully
+  // unmappable description: fall back to a random genre rather than title-matching.
+  const used = [...new Set(tags)].slice(0, 2);
+  if (used.length === 0) used.push(pick(TAXONOMY.MUSIC.genres).toLowerCase());
 
-  // A `genre:"..."` filter gives far better relevance than a bare genre word.
-  const primary = [`genre:"${genre}"`, free].filter(Boolean).join(" ");
-  const fallback = free || genre; // plain text if the genre filter yields nothing
-  // Random offset spreads picks across pages; degrade gracefully on overshoot/sparse.
-  let items = await searchTracks(token, primary, rand(20));
-  if (items.length === 0) items = await searchTracks(token, primary, 0);
-  if (items.length === 0) items = await searchTracks(token, fallback, 0);
-  return items;
+  // Blend the (one or two) tag pools so a genre + mood request draws from both.
+  const pools = await Promise.all(used.map((t) => moodPool(token, t)));
+  const items = dedupeTracks(pools.flat());
+  // Last resort if the tag searches returned nothing (e.g. an unknown genre tag).
+  return items.length ? items : searchTracks(token, used.join(" "), 0);
 }
 
 /** A random track from Spotify, narrowed by the filter when present. */
-export async function getRandomTrack(filter?: SuggestionFilter | null): Promise<ExternalSuggestion> {
+export async function getRandomTrack(
+  filter?: SuggestionFilter | null,
+  exclude?: Set<string> | null,
+): Promise<ExternalSuggestion> {
   const token = await getToken();
   const key = isCacheableFilter(filter) ? filterKey("MUSIC", filter) : null;
   const items = await cachedPool(key, () => searchPool(token, filter));
   if (items.length === 0) throw new Error("Spotify returned no tracks");
 
-  const track = pick(items);
+  const track = pickFresh(items, (t) => `spotify:${t.id}`, exclude);
   const artistId = track.artists[0]?.id;
 
-  // The artist-genres lookup and the preview resolution are independent — run them
-  // concurrently instead of one after the other.
-  const [genres, previewUrl] = await Promise.all([
-    artistId
-      ? fetchJson<{ genres: string[] }>(`${API}/artists/${artistId}`, auth(token))
-          .then((a) => a.genres.slice(0, 3).map(titleCase))
-          .catch(() => [] as string[]) // genres are optional
-      : Promise.resolve<string[]>([]),
-    resolvePreview(track),
-  ]);
+  // Only the artist-genres lookup is resolved up front. The 30-sec preview (a slow
+  // embed scrape when the API omits `preview_url`) is fetched lazily by the client
+  // after the result renders, so the spin returns fast.
+  const genres = artistId
+    ? await fetchJson<{ genres: string[] }>(`${API}/artists/${artistId}`, auth(token))
+        .then((a) => a.genres.slice(0, 3).map(titleCase))
+        .catch(() => [] as string[]) // genres are optional
+    : [];
 
   return {
     id: `spotify:${track.id}`,
@@ -192,7 +222,7 @@ export async function getRandomTrack(filter?: SuggestionFilter | null): Promise<
     providers: ["Spotify"],
     url: track.external_urls.spotify,
     imageUrl: track.album.images[0]?.url ?? null,
-    previewUrl,
+    previewUrl: track.preview_url, // null for newer apps → resolved lazily client-side
     trailerUrl: null,
   };
 }

@@ -1,5 +1,5 @@
 import type { Mode, PrismaClient, Suggestion } from "@prisma/client";
-import { getRandomTrack } from "@/server/providers/spotify";
+import { getRandomTrack, fetchTrackPreview } from "@/server/providers/spotify";
 import { getRandomTitle } from "@/server/providers/tmdb";
 import { getRandomBook } from "@/server/providers/books";
 import { ProviderUnavailable, withTimeout, type ExternalSuggestion } from "@/server/providers/types";
@@ -9,6 +9,15 @@ export interface SuggestionFilter {
   genres?: string[] | null;
   vibes?: string[] | null;
   query?: string | null;
+}
+
+/**
+ * Lazily resolve a Spotify track's 30-sec preview (scraped after the spin so the
+ * result appears fast). Returns null for non-Spotify ids or when none is found.
+ */
+export async function getTrackPreview(suggestionId: string): Promise<string | null> {
+  const m = /^spotify:(.+)$/.exec(suggestionId);
+  return m ? fetchTrackPreview(m[1]) : null;
 }
 
 /** Normalise a Prisma row's JSON columns into plain string arrays for GraphQL. */
@@ -65,11 +74,14 @@ async function persist(prisma: PrismaClient, ext: ExternalSuggestion, userId: st
   };
   await prisma.suggestion.upsert({ where: { id: ext.id }, create: { id: ext.id, ...data }, update: data });
   await prisma.historyEntry.create({ data: { suggestionId: ext.id, action: "suggested", userId } });
-  return ext;
+  // Default the optional array fields so the live result matches the non-null
+  // GraphQL contract (only TMDB sets watchLinks; Spotify/Open Library don't).
+  return { ...ext, watchLinks: ext.watchLinks ?? [], cast: ext.cast ?? [] };
 }
 
-// How many recent picks to avoid repeating before allowing them again.
-const RECENT_WINDOW = 8;
+// How many recent picks to avoid repeating before allowing them again. Passed to
+// the provider so it picks a fresh candidate from the pool rather than re-rolling.
+const RECENT_WINDOW = 15;
 // Each re-roll is a fresh round of API calls, so keep it low to stay fast.
 const PROVIDER_RETRIES = 2;
 // Hard ceiling on live-provider work per spin; past this we serve the seed instantly.
@@ -103,10 +115,10 @@ export async function getRandomSuggestion(
 
   const fetchExternal = () =>
     mode === "MUSIC"
-      ? getRandomTrack(filter)
+      ? getRandomTrack(filter, recent)
       : mode === "BOOK"
-        ? getRandomBook(filter)
-        : getRandomTitle(filter, region ?? undefined);
+        ? getRandomBook(filter, recent)
+        : getRandomTitle(filter, region ?? undefined, recent);
 
   try {
     // Whole live attempt (initial pick + re-rolls) is time-boxed so a slow API

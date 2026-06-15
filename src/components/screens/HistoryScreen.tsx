@@ -54,6 +54,7 @@ export function HistoryScreen() {
         <SegmentedControl<Tab>
           value={tab}
           onChange={setTab}
+          label="Filter history by type"
           options={[
             { value: "ALL", label: "All" },
             { value: "MUSIC", label: "Music" },
@@ -65,7 +66,7 @@ export function HistoryScreen() {
 
       <ul className="mt-4 flex-1">
         {loading ? (
-          <li className="py-10 text-center text-sub">Loading…</li>
+          <li role="status" className="py-10 text-center text-sub">Loading…</li>
         ) : entries.length === 0 ? (
           <li className="py-10 text-center text-sm leading-relaxed text-faint">
             Every spin is saved here —
