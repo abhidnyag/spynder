@@ -182,4 +182,30 @@ describe("getRandomTrack — a typed vibe", () => {
     expect(queries.length).toBeGreaterThan(0);
     expect(queries.every((q) => q === 'genre:"pop" year:1990-1999')).toBe(true);
   });
+
+  it("country + decade (no genre) searches the region's local genres in its market", async () => {
+    const calls: { q: string; market: string; offset: string }[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        const p = search(url);
+        calls.push({ q: decodeURIComponent(p.get("q") ?? ""), market: p.get("market") ?? "", offset: p.get("offset") ?? "" });
+        return jsonOk({ tracks: { items: tracks(10, `${p.get("q")}${p.get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ country: "IN", decade: 1990 });
+
+    // Both of India's local genres are searched, year-scoped, in the IN market —
+    // never a global/marketless query.
+    expect(calls.every((c) => c.market === "IN")).toBe(true);
+    expect(calls.some((c) => c.q === 'genre:"bollywood" year:1990-1999')).toBe(true);
+    expect(calls.some((c) => c.q === 'genre:"filmi" year:1990-1999')).toBe(true);
+    // Burst is capped: the page budget is split across the 2 genres (2 pages each),
+    // so the spin fires ~4 parallel searches — not 8 — to stay under Spotify's limit.
+    expect(calls.length).toBeLessThanOrEqual(4);
+  });
 });

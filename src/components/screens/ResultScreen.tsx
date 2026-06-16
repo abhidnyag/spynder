@@ -103,11 +103,22 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
       ) : noMatch ? (
         // No filter match → tell the user, then show a random pick for the mode below.
         <div className="flex flex-1 flex-col">
-          <NoMatchNotice mode={mode} />
+          <NoMatchNotice mode={mode} filter={filter} />
           {fbLoading && !fallback ? (
             <SpinLoader mode={mode} />
           ) : fallback ? (
-            <ResultCard mode={mode} {...handlers(fallback, () => refetchFallback())} />
+            // "Spin again" retries the FILTERED query too, not just the fallback. A single
+            // empty result (e.g. a provider rate-limit/timeout for a country+decade) would
+            // otherwise latch the UI in this unfiltered fallback until the user re-searches —
+            // which is why a fresh search "magically" returned filtered results again.
+            // Retrying main lets it self-heal straight back to the country/decade picks.
+            <ResultCard
+              mode={mode}
+              {...handlers(fallback, () => {
+                void refetch();
+                void refetchFallback();
+              })}
+            />
           ) : (
             <EmptyState filter={filter} />
           )}
@@ -308,7 +319,7 @@ function MovieResult({ s, onFav, onSkip, onSpin }: ResultProps) {
       <Credits director={s.director} cast={s.cast} />
       {s.synopsis && <p className="mt-4 line-clamp-4 text-[13px] leading-relaxed text-sub">{s.synopsis}</p>}
 
-      <Providers items={s.providers} links={s.watchLinks} />
+      <Providers items={s.providers} links={s.watchLinks} providerUrl={s.providerUrl} />
 
       <ActionRow actions={[
         { icon: s.isFavorite ? "heartFilled" : "heart", label: s.isFavorite ? "Saved" : "Watchlist", onClick: onFav, active: s.isFavorite },
@@ -439,16 +450,18 @@ const sameProvider = (a: string, b: string) => {
 };
 
 /**
- * Where-to-watch chips. TMDB provider names (region-correct) are shown and become a
- * direct link when Watchmode resolved a deep link for that service. Any Watchmode
- * deep link not matched to a TMDB provider is appended too, so no link is lost (e.g.
- * TMDB listed no providers, or Watchmode knows a service TMDB didn't).
+ * Where-to-watch chips. TMDB provider names (region-correct) are shown and link out:
+ * to Watchmode's direct per-platform deep link when one resolved for that service,
+ * otherwise to TMDB's region-specific "where to watch" page (`providerUrl`) — so a
+ * chip is always clickable, even without a Watchmode key. Any Watchmode deep link not
+ * matched to a TMDB provider is appended too, so no link is lost (e.g. TMDB listed no
+ * providers, or Watchmode knows a service TMDB didn't).
  */
-function Providers({ items, links }: { items: string[]; links: WatchLink[] }) {
+function Providers({ items, links, providerUrl }: { items: string[]; links: WatchLink[]; providerUrl?: string | null }) {
   const chipClass = "rounded-lg border border-line px-3 py-1.5 text-[11px] font-semibold text-sub";
   const chips: { label: string; url: string | null }[] = items.map((p) => ({
     label: p,
-    url: links.find((l) => sameProvider(l.name, p))?.url ?? null,
+    url: links.find((l) => sameProvider(l.name, p))?.url ?? providerUrl ?? null,
   }));
   for (const l of links) if (!chips.some((c) => sameProvider(c.label, l.name))) chips.push({ label: l.name, url: l.url });
 
@@ -572,13 +585,23 @@ function ResultCard({ mode, s, onFav, onSkip, onSpin }: { mode: Mode } & ResultP
 }
 
 /** Banner shown above the random fallback when nothing matched the filters. */
-function NoMatchNotice({ mode }: { mode: Mode }) {
+function NoMatchNotice({ mode, filter }: { mode: Mode; filter: SuggestionFilter }) {
   const label = mode === "MUSIC" ? "song" : mode === "BOOK" ? "book" : "title";
+  // Name the filters actually applied, so the hint points at what to loosen.
+  const applied = [
+    filter.genres?.length && "genre",
+    filter.minRating && "rating",
+    filter.decade && "decade",
+    filter.country && "region",
+    filter.type && filter.type !== "either" && "type",
+    filter.vibes?.length && "vibe",
+  ].filter(Boolean) as string[];
+  const which = applied.length ? ` — like ${applied.join(", ")}` : "";
   return (
     <div role="status" className="reveal mt-2 rounded-2xl border border-line bg-surface px-4 py-3 text-center">
-      <p className="text-sm font-semibold">No matches for those filters</p>
+      <p className="text-sm font-semibold">No {label}s match all your filters</p>
       <p className="mt-1 text-[12px] leading-relaxed text-sub">
-        Nothing fit everything you picked — here&apos;s a random {label} instead. Loosen a filter and spin again.
+        Try removing or changing a filter{which} to get results. In the meantime, here&apos;s a random {label} below.
       </p>
     </div>
   );

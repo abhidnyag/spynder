@@ -1,4 +1,4 @@
-import type { SuggestionFilter } from "./types";
+import { type SuggestionFilter, pickFresh } from "./types";
 
 // In-memory candidate-pool cache. A spin with a filter (genre/vibe/description) reuses
 // the pool it fetched moments ago instead of re-hitting the external API, so repeated
@@ -12,6 +12,44 @@ interface Entry {
 const store = new Map<string, Entry>();
 const TTL_MS = 5 * 60_000;
 const MAX_ENTRIES = 200;
+
+// Per-pool record of ids already shown, so "Spin again" exhausts the filtered pool before
+// repeating. Keyed identically to the candidate cache; reset whenever a fresh pool is
+// produced (see cachedPool) and cleared alongside it.
+const servedStore = new Map<string, Set<string>>();
+
+/**
+ * Pick a pool item not yet shown for this filter, so every spin is a NEW result until the
+ * whole filtered pool is exhausted — then a fresh cycle begins (the recent-window
+ * `pickFresh` only avoided the last ~15, which repeated early on larger pools). `exclude`
+ * (recent cross-session picks) is still honoured so a new cycle doesn't immediately repeat
+ * the latest few. Keyless pools (pure-random "Surprise Me") keep the simple pick so they
+ * stay maximally varied.
+ */
+export function pickUnseen<T>(
+  key: string | null,
+  items: readonly T[],
+  id: (t: T) => string,
+  exclude?: Set<string> | null,
+): T {
+  if (!key) return pickFresh(items, id, exclude);
+  let served = servedStore.get(key);
+  if (!served) {
+    served = new Set<string>();
+    servedStore.set(key, served);
+  }
+  // Prefer items neither served this cycle nor in the recent window.
+  let pool = items.filter((x) => !served!.has(id(x)) && !exclude?.has(id(x)));
+  if (pool.length === 0) {
+    // Whole pool served (or all excluded) → start a new cycle, still skipping the recent few.
+    served.clear();
+    pool = items.filter((x) => !exclude?.has(id(x)));
+    if (pool.length === 0) pool = [...items]; // recent covers everything → allow a repeat
+  }
+  const chosen = pickFresh(pool, id, null); // uniform pick within the unseen subset
+  served.add(id(chosen));
+  return chosen;
+}
 
 /**
  * Pure-random spins (Home "Surprise Me", no filter) stay uncached so they keep maximum

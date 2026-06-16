@@ -77,7 +77,16 @@ async function searchTracks(token: string, q: string, offset: number, market = "
     `${API}/search?type=track&market=${market}&limit=${SEARCH_LIMIT}&offset=${offset}&q=${encodeURIComponent(q)}`,
     { ...auth(token), signal: timeoutSignal() },
   );
-  if (!res.ok) return []; // sparse result / throttle → caller retries at offset 0
+  // Rate limited: the client-credentials quota is shared app-wide and Spotify's
+  // Retry-After can be very long (hours), so retrying would only blow the spin budget.
+  // Log it — an empty pool from a 429 is a throttle, NOT "no music for this filter",
+  // and silently swallowing it made country+decade spins look broken (they dead-ended
+  // to the seed pick, which returns nothing for a country filter).
+  if (res.status === 429) {
+    console.warn(`[spotify] rate limited (429) on "${q}" [${market}] — retry-after ${res.headers.get("retry-after") ?? "?"}s`);
+    return [];
+  }
+  if (!res.ok) return []; // sparse result / transient error → caller retries at offset 0
   const data = (await res.json()) as { tracks?: { items: SpotifyTrack[] } };
   return data.tracks?.items ?? [];
 }
@@ -158,19 +167,21 @@ const dedupeTracks = (rows: SpotifyTrack[]): SpotifyTrack[] => [...new Map(rows.
 // `pickFresh` runs out of fresh picks and starts repeating. 4 pages → up to ~40.
 const POOL_PAGES = 4;
 
-/** Fetch POOL_PAGES pages of a raw search query in parallel, de-duplicated.
- *  (Spotify dev mode caps limit at 10, so variety comes from paging.) */
-async function pagedSearch(token: string, q: string, market: string): Promise<SpotifyTrack[]> {
+/** Fetch `pages` pages of a raw search query in parallel, de-duplicated.
+ *  (Spotify dev mode caps limit at 10, so variety comes from paging.) Each page is one
+ *  request fired at once, so callers blending several tags cap `pages` to keep the
+ *  parallel burst small — Spotify rate-limits the shared client-credentials quota. */
+async function pagedSearch(token: string, q: string, market: string, pages = POOL_PAGES): Promise<SpotifyTrack[]> {
   console.log(`Spotify search: "${q}" [${market}]`);
-  const pages = await Promise.all(
-    Array.from({ length: POOL_PAGES }, (_, i) => searchTracks(token, q, i * SEARCH_LIMIT, market)),
+  const results = await Promise.all(
+    Array.from({ length: pages }, (_, i) => searchTracks(token, q, i * SEARCH_LIMIT, market)),
   );
-  return dedupeTracks(pages.flat());
+  return dedupeTracks(results.flat());
 }
 
-async function moodPool(token: string, tag: string, suffix = "", market = "US"): Promise<SpotifyTrack[]> {
+async function moodPool(token: string, tag: string, suffix = "", market = "US", pages = POOL_PAGES): Promise<SpotifyTrack[]> {
   // `suffix` carries an optional ` year:START-END` decade clause; `market` is the region.
-  let pool = await pagedSearch(token, `genre:"${tag}"${suffix}`, market);
+  let pool = await pagedSearch(token, `genre:"${tag}"${suffix}`, market, pages);
   for (const sibling of SIBLING_TAGS[tag] ?? []) {
     if (pool.length >= 15) break;
     pool = dedupeTracks([...pool, ...(await searchTracks(token, `genre:"${sibling}"${suffix}`, 0, market))]);
@@ -214,7 +225,13 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   if (used.length === 0 && filter?.country) {
     const local = COUNTRY_GENRES[filter.country.toUpperCase()];
     if (local) {
-      const pools = await Promise.all(local.map((g) => moodPool(token, g, yearSuffix, market)));
+      // Spread the page budget ACROSS the local genres rather than paging each one
+      // fully: two genres × POOL_PAGES (4) was 8 simultaneous requests per spin — the
+      // heaviest query in the app — which tripped Spotify's rate limit and emptied the
+      // pool (→ a silent "no matches" for every country+decade). Splitting keeps the
+      // burst to ~POOL_PAGES total while still pooling ~40 candidates across the genres.
+      const pages = Math.max(1, Math.ceil(POOL_PAGES / local.length));
+      const pools = await Promise.all(local.map((g) => moodPool(token, g, yearSuffix, market, pages)));
       return dedupeTracks(pools.flat());
     }
   }

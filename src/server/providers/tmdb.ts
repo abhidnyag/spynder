@@ -15,11 +15,40 @@ const IMG = "https://image.tmdb.org/t/p/w500";
 
 type Kind = "movie" | "tv";
 
-// Our chip vocabulary → TMDB genre names (movie + tv differ for a few).
+// Our chip vocabulary → TMDB genre names (movie + tv differ for a few). These are
+// DIRECT equivalents that exist on one side or the other, applied to both kinds.
 const GENRE_ALIASES: Record<string, string[]> = {
   "Sci-Fi": ["Science Fiction", "Sci-Fi & Fantasy"],
   Anime: ["Animation"],
   Action: ["Action", "Action & Adventure"],
+};
+
+// LOOSE, TV-only approximations for chips TMDB's TV catalogue has no exact genre for
+// (no "Thriller"/"Horror"/"Romance" on the TV side). Applied ONLY when querying series
+// and ONLY in "loose" mode — so movie genre resolution is never broadened (Crime/Mystery
+// are real movie genres, so mixing these into movie queries would change behaviour).
+// Used as a best-effort fallback for a pinned "Series" + one of these genres.
+const TV_GENRE_FALLBACKS: Record<string, string[]> = {
+  Thriller: ["Crime", "Mystery"], // crime/mystery thrillers
+  Horror: ["Mystery", "Sci-Fi & Fantasy"], // psychological & supernatural horror
+  Romance: ["Soap", "Drama"], // romantic serials / dramas
+};
+
+// Region → that country's primary film/TV language (ISO 639-1), the movies/series
+// analogue of music's COUNTRY_GENRES (Bollywood/filmi …). Added to /discover as
+// `with_original_language` ON TOP of `with_origin_country`, so a region pick is
+// authentically native — India → Hindi (Bollywood), Korea → Korean, Japan → Japanese —
+// rather than an English-language co-production merely shot or co-funded there. The
+// constraint is dropped (origin country alone) when it over-narrows a sparse era — see
+// `discoverPool`. US/GB stay unmapped: English is the default and origin country already
+// pins them.
+const COUNTRY_LANGUAGES: Record<string, string> = {
+  IN: "hi", // Hindi — Bollywood, India's largest industry
+  KR: "ko", // Korean
+  JP: "ja", // Japanese
+  FR: "fr", // French
+  ES: "es", // Spanish
+  DE: "de", // German
 };
 
 interface TmdbResult {
@@ -79,6 +108,12 @@ function url(path: string, params: Record<string, string | number> = {}): string
 // Cache the id↔name genre maps per kind (one call each, then reused).
 const genreCache: Partial<Record<Kind, Map<number, string>>> = {};
 
+/** Test helper — reset the per-kind genre map cache so cases don't leak maps. */
+export function clearGenreCache(): void {
+  delete genreCache.movie;
+  delete genreCache.tv;
+}
+
 async function genreMap(kind: Kind): Promise<Map<number, string>> {
   if (genreCache[kind]) return genreCache[kind]!;
   const data = await fetchJson<{ genres: { id: number; name: string }[] }>(url(`/genre/${kind}/list`));
@@ -87,10 +122,20 @@ async function genreMap(kind: Kind): Promise<Map<number, string>> {
   return map;
 }
 
-async function genreIds(kind: Kind, names?: string[] | null): Promise<number[]> {
+/**
+ * TMDB genre ids for our chip names. `loose` adds the TV-only approximations
+ * (Thriller→Crime/Mystery, …) when querying series, so a pinned "Series" + Thriller
+ * spin still filters by something. It's OFF for the kind-steering decision, which must
+ * stay strict (a genre that maps only via a loose TV fallback shouldn't count as "TV
+ * supports it"), and a no-op for movies (the fallbacks are TV-side only).
+ */
+async function genreIds(kind: Kind, names?: string[] | null, loose = false): Promise<number[]> {
   if (!names?.length) return [];
   const map = await genreMap(kind);
-  const wanted = new Set(names.flatMap((n) => [n, ...(GENRE_ALIASES[n] ?? [])]).map((s) => s.toLowerCase()));
+  const fallbacks = loose && kind === "tv" ? TV_GENRE_FALLBACKS : {};
+  const wanted = new Set(
+    names.flatMap((n) => [n, ...(GENRE_ALIASES[n] ?? []), ...(fallbacks[n] ?? [])]).map((s) => s.toLowerCase()),
+  );
   return [...map.entries()].filter(([, name]) => wanted.has(name.toLowerCase())).map(([id]) => id);
 }
 
@@ -147,8 +192,11 @@ const dedupeById = (rows: TmdbResult[]): TmdbResult[] => [...new Map(rows.map((r
  * Pool several pages of a /discover query (page 1 + a few random pages) for far more
  * variety on re-rolls. A single page (~20) is cached for 5 min, so "Spin again" would
  * just cycle those 20 even when the catalogue has hundreds (e.g. a country + decade).
+ * `count` pages → up to ~`count * 20` candidates; 5 keeps re-rolls fresh deep into a
+ * session while staying well within TMDB's rate budget (pages fetch in parallel, once
+ * per cache miss). Capped by the catalogue's own page count for a thin filter.
  */
-async function discoverPages(kind: Kind, params: Record<string, string | number>, count = 3): Promise<TmdbResult[]> {
+async function discoverPages(kind: Kind, params: Record<string, string | number>, count = 5): Promise<TmdbResult[]> {
   console.log("kind, params", kind, params);
   const first = await fetchJson<{ results: TmdbResult[]; total_pages: number }>(url(`/discover/${kind}`, { ...params, page: 1 }));
   if (first.results.length === 0) return [];
@@ -176,9 +224,9 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
   const vibeText = [filter?.query, ...(filter?.vibes ?? [])].filter(Boolean).join(" ").trim();
 
   // Decade → release-date window (the date field differs for movies vs series);
-  // minRating → vote_average floor; country → origin country. Built per-kind so the
-  // popular fallback can retry the other kind with the correct date field.
-  const constraintsFor = (k: Kind): Record<string, string | number> => {
+  // minRating → vote_average floor; country → origin country (+ native language). Built
+  // per-kind so the popular fallback can retry the other kind with the correct date field.
+  const constraintsFor = (k: Kind, includeLang = true): Record<string, string | number> => {
     const dateKey = k === "tv" ? "first_air_date" : "primary_release_date";
     const c: Record<string, string | number> = {};
     if (filter?.decade) {
@@ -186,7 +234,14 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
       c[`${dateKey}.lte`] = `${filter.decade + 9}-12-31`;
     }
     if (filter?.minRating) c["vote_average.gte"] = filter.minRating;
-    if (filter?.country) c["with_origin_country"] = filter.country.toUpperCase();
+    if (filter?.country) {
+      const code = filter.country.toUpperCase();
+      c["with_origin_country"] = code;
+      // Native-language refinement (Hindi for India, Korean for Korea, …). Dropped via
+      // includeLang=false when it leaves too few titles, so a country spin still works.
+      const lang = includeLang ? COUNTRY_LANGUAGES[code] : undefined;
+      if (lang) c["with_original_language"] = lang;
+    }
     return c;
   };
 
@@ -196,14 +251,27 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
   const voteFloor = filter?.country ? 20 : 200;
   const typePinned = filter?.type === "movie" || filter?.type === "series";
 
-  const kind = pickKind(filter?.type);
+  // A selected genre may exist for only ONE kind — TMDB's TV genre list has no
+  // Thriller/Horror/Romance, so a "series" pick would silently drop the genre and return
+  // off-genre shows. Resolve which kinds can actually honour the genre up front, so we can
+  // (a) steer an unpinned spin to a kind that supports it and (b) never switch away to a
+  // kind that can't. No genre, or one supported by both kinds → null (no constraint).
+  let genreKind: Kind | null = null;
+  if (filter?.genres?.length) {
+    const [movieG, tvG] = await Promise.all([genreIds("movie", filter.genres), genreIds("tv", filter.genres)]);
+    if (movieG.length && !tvG.length) genreKind = "movie";
+    else if (tvG.length && !movieG.length) genreKind = "tv";
+  }
+
+  // Honour a pinned type; otherwise prefer the genre-supporting kind, else random.
+  const kind = typePinned ? pickKind(filter?.type) : (genreKind ?? pickKind(filter?.type));
   const constraints = constraintsFor(kind);
 
   let results: TmdbResult[] = [];
   if (vibeText) {
     const [keywords, genres] = await Promise.all([
       keywordIds(vibeText),
-      genreIds(kind, [...(filter?.genres ?? []), ...vibeGenreHints(vibeText)]),
+      genreIds(kind, [...(filter?.genres ?? []), ...vibeGenreHints(vibeText)], true),
     ]);
     const base = { sort_by: "popularity.desc", "vote_count.gte": filter?.country ? 20 : 40, include_adult: "false", ...constraints };
     if (keywords.length) {
@@ -225,29 +293,59 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
   }
 
   // No vibe given, or nothing matched: a popular discover (optionally genre-filtered).
-  const popular = async (k: Kind): Promise<TmdbResult[]> => {
-    const genres = await genreIds(k, filter?.genres);
-    return discoverPages(k, {
-      sort_by: "popularity.desc",
-      "vote_count.gte": voteFloor,
-      include_adult: "false",
-      ...constraintsFor(k),
-      ...(genres.length ? { with_genres: genres.join(",") } : {}),
-    });
+  // Below this many candidates, "Spin again" starts repeating — the service skips the
+  // last RECENT_WINDOW (15) picks, so a smaller pool quickly runs out of fresh titles.
+  const MIN_POOL = 20;
+  const langForCountry = filter?.country ? COUNTRY_LANGUAGES[filter.country.toUpperCase()] : undefined;
+
+  // A popularity-sorted discover for one kind at a given vote floor (and optional language).
+  const discoverPopular = async (k: Kind, voteGte: number, includeLang = true): Promise<TmdbResult[]> => {
+    const genres = await genreIds(k, filter?.genres, true); // loose: series gets a TV approximation
+    const withGenres: Record<string, string> = genres.length ? { with_genres: genres.join(",") } : {};
+    return discoverPages(k, { sort_by: "popularity.desc", include_adult: "false", "vote_count.gte": voteGte, ...withGenres, ...constraintsFor(k, includeLang) });
   };
-  if (results.length === 0) {
-    results = await popular(kind);
-    // The movie/series choice is random and often lands on the sparser catalogue
-    // (e.g. Indian TV ~5 titles vs the far larger film list). If this side is thin
-    // and the type isn't pinned, try the other kind and keep whichever has more.
-    if (!typePinned && results.length < 15) {
-      const other: Kind = kind === "tv" ? "movie" : "tv";
-      const otherResults = await popular(other);
-      if (otherResults.length > results.length) return { kind: other, results: otherResults };
+
+  // Grow a thin country pool, PRESERVING country + language as long as possible:
+  //   1) relax the popularity floor — old/regional films rarely clear 20 votes, but ≥5
+  //      keeps real titles while dropping untrusted 0–4-vote noise (turns ~5 into ~50);
+  //   2) only for a genuinely tiny catalogue, drop the language as a last resort so the
+  //      spin still returns titles rather than cycling the same handful.
+  const grow = async (k: Kind, pool: TmdbResult[]): Promise<TmdbResult[]> => {
+    let res = pool;
+    if (res.length < MIN_POOL && filter?.country) {
+      const lower = await discoverPopular(k, 5);
+      if (lower.length > res.length) res = lower;
+      if (res.length < MIN_POOL && langForCountry) {
+        const noLang = await discoverPopular(k, 5, false);
+        if (noLang.length > res.length) res = noLang;
+      }
     }
+    return res;
+  };
+
+  let resolvedKind = kind;
+  if (results.length === 0) {
+    results = await discoverPopular(kind, voteFloor);
+    // movie vs series is chosen at random, but the two catalogues differ wildly in size
+    // (e.g. Indian 1990s: ~88 films but only ~7 series even fully relaxed). When the
+    // random kind is thin and the type isn't pinned, compare the other kind AT THE SAME
+    // FLOOR and keep the richer one — done BEFORE any relaxation, so a tiny TV pool isn't
+    // first inflated to "good enough" and then locked in, which made re-spins cycle ~3–4.
+    // Skip when a genre locked the kind: switching would silently drop the genre (the
+    // other kind can't map it), trading a thin on-genre pool for a large off-genre one.
+    if (!typePinned && !genreKind && results.length < MIN_POOL) {
+      const other: Kind = kind === "tv" ? "movie" : "tv";
+      const otherResults = await discoverPopular(other, voteFloor);
+      if (otherResults.length > results.length) {
+        results = otherResults;
+        resolvedKind = other;
+      }
+    }
+    // Grow whichever kind we settled on, if it's still thin for an older/regional decade.
+    results = await grow(resolvedKind, results);
   }
   if (results.length === 0) throw new Error("TMDB returned no results");
-  return { kind, results };
+  return { kind: resolvedKind, results };
 }
 
 /**
@@ -268,41 +366,49 @@ export async function getRandomTitle(
   // One details call (watch providers + videos + credits appended) fills runtime,
   // where-to-watch, trailer, and the director + top cast. In parallel, Watchmode
   // resolves direct per-platform deep links (no-op without WATCHMODE_API_KEY).
+  //
+  // The details call must NOT be allowed to dead-end the spin: TMDB 429s (rate limit) or
+  // times out occasionally, and `fetchJson` surfaces a 4xx immediately. Throwing here sent
+  // the whole pick to the seed fallback — which returns NOTHING for a country filter — so a
+  // single hiccup mid-session showed "no more results" even though the pool was full. The
+  // discover row we already picked carries title/poster/year/rating/overview, so on failure
+  // we degrade to that (just without runtime/cast/trailer) and the spin keeps flowing.
   const [details, watchLinks] = await Promise.all([
-    fetchJson<TmdbDetails>(url(`/${kind}/${chosen.id}`, { append_to_response: "watch/providers,videos,credits" })),
+    fetchJson<TmdbDetails>(url(`/${kind}/${chosen.id}`, { append_to_response: "watch/providers,videos,credits" })).catch(() => null),
     watchLinksForTmdb(chosen.id, kind, region),
   ]);
 
-  const date = details.release_date || details.first_air_date || "";
+  const base = details ?? chosen;
+  const date = base.release_date || base.first_air_date || "";
   // Prefer the viewer's region; fall back to US so a title without local
   // listings still shows somewhere to watch.
-  const watch = details["watch/providers"]?.results ?? {};
+  const watch = details?.["watch/providers"]?.results ?? {};
   const regional = watch[region.toUpperCase()] ?? watch.US;
   const providers = regional?.flatrate?.map((p) => p.provider_name).slice(0, 3) ?? [];
   const providerUrl = regional?.link ?? null;
-  const cast = details.credits?.cast?.slice(0, 4).map((c) => c.name) ?? [];
+  const cast = details?.credits?.cast?.slice(0, 4).map((c) => c.name) ?? [];
 
   return {
     id: `tmdb:${kind}:${chosen.id}`,
     mode: "MOVIE",
     source: "tmdb",
     type: kind === "tv" ? "series" : "movie",
-    title: details.title || details.name || "Untitled",
+    title: base.title || base.name || "Untitled",
     artist: null,
     year: Number(date.slice(0, 4)) || null,
-    rating: details.vote_average ? Math.round(details.vote_average * 10) / 10 : null,
-    runtime: fmtRuntime(kind, details.runtime),
-    synopsis: details.overview || null,
-    genres: details.genres.map((g) => g.name).slice(0, 3),
+    rating: base.vote_average ? Math.round(base.vote_average * 10) / 10 : null,
+    runtime: fmtRuntime(kind, details?.runtime),
+    synopsis: base.overview || null,
+    genres: details?.genres?.map((g) => g.name).slice(0, 3) ?? [],
     vibes: filter?.vibes ?? [],
     providers,
     providerUrl,
     watchLinks,
     url: `https://www.themoviedb.org/${kind}/${chosen.id}`,
-    imageUrl: details.poster_path ? `${IMG}${details.poster_path}` : null,
+    imageUrl: base.poster_path ? `${IMG}${base.poster_path}` : null,
     previewUrl: null,
-    trailerUrl: trailerFrom(details),
-    director: directorFrom(details),
+    trailerUrl: details ? trailerFrom(details) : null,
+    director: details ? directorFrom(details) : null,
     cast,
   };
 }
