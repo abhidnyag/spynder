@@ -1,4 +1,4 @@
-import { fetchJson } from "./types";
+import { fetchJson, timeoutSignal } from "./types";
 
 // Watchmode turns a title into direct, per-platform deep links (the exact page
 // on Netflix/Prime/etc.), which TMDB's watch/providers does not expose.
@@ -41,7 +41,14 @@ export async function watchLinksForTmdb(
     // The `regions` query param is a paid feature — free plans 400 on any region
     // they don't have enabled. So we fetch every available region and prefer the
     // viewer's locally, which works regardless of plan.
-    const sources = await fetchJson<WatchmodeSource[]>(`${API}/title/${kind}-${tmdbId}/sources/?apiKey=${key}`);
+    // No retry (the real budget-buster: a retry doubled this toward ~6s and made the
+    // whole pick time out → seed → null). A 3s ceiling is plenty for Watchmode's
+    // typical ~1–1.5s, so deep links resolve while staying under the spin budget.
+    const sources = await fetchJson<WatchmodeSource[]>(
+      `${API}/title/${kind}-${tmdbId}/sources/?apiKey=${key}`,
+      { signal: timeoutSignal(3000) },
+      0,
+    );
 
     const want = region.toUpperCase();
     const inRegion = sources.filter((s) => s.region?.toUpperCase() === want);

@@ -52,6 +52,7 @@ function url(q: string, offset: number, lang = "eng", sort?: string): string {
  * text). Only when there's nothing to go on do we seed a random subject.
  */
 function buildQuery(filter?: SuggestionFilter | null): string {
+  console.log("filter", filter);
   const genre = filter?.genres?.length ? pick(filter.genres) : null;
   const subject = genre ? `subject:"${SUBJECTS[genre] ?? genre}"` : "";
   const free = [...(filter?.vibes ?? []), filter?.query].filter(Boolean).join(" ").trim();
@@ -109,8 +110,21 @@ async function fetchDocs(filter?: SuggestionFilter | null): Promise<OLDoc[]> {
   // searches keep relevance ranking. The service grants books a larger budget, and a
   // success caches the pool so re-spins are instant.
   const sort = filter?.decade ? "readinglog" : undefined;
-  const res = await fetchJson<OLResponse>(url(q, 0, regionLang(filter?.country), sort), { signal: timeoutSignal(6000) }, 0);
-  const all = (res.docs ?? []).filter((d) => d.title && d.key);
+  const lang = regionLang(filter?.country);
+  // Pool several pages (in parallel) so "Spin again" keeps finding fresh books over a
+  // long session — the pool is cached for 5 min, and one page (~40) gets recycled
+  // otherwise. Each page fails soft so a slow/failed deep page never sinks the spin.
+  const offsets = [0, PAGE, PAGE * 2];
+  const pages = await Promise.all(
+    offsets.map((off) =>
+      fetchJson<OLResponse>(url(q, off, lang, sort), { signal: timeoutSignal(6000) }, 0)
+        .then((r) => r.docs ?? [])
+        .catch(() => [] as OLDoc[]),
+    ),
+  );
+  const byKey = new Map<string, OLDoc>();
+  for (const d of pages.flat()) if (d.title && d.key && !byKey.has(d.key)) byKey.set(d.key, d);
+  const all = [...byKey.values()];
 
   // Keep relevance order, but drop obscure junk so a vibe returns real, recognisable
   // books. Fall back gradually so a niche query still returns something.

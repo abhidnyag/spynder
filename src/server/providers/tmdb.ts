@@ -143,14 +143,27 @@ async function keywordIds(text: string): Promise<number[]> {
 
 const dedupeById = (rows: TmdbResult[]): TmdbResult[] => [...new Map(rows.map((r) => [r.id, r])).values()];
 
-/** Run a /discover query and return a random page's results (spreads picks around). */
-async function discoverPage(kind: Kind, params: Record<string, string | number>): Promise<TmdbResult[]> {
+/**
+ * Pool several pages of a /discover query (page 1 + a few random pages) for far more
+ * variety on re-rolls. A single page (~20) is cached for 5 min, so "Spin again" would
+ * just cycle those 20 even when the catalogue has hundreds (e.g. a country + decade).
+ */
+async function discoverPages(kind: Kind, params: Record<string, string | number>, count = 3): Promise<TmdbResult[]> {
+  console.log("kind, params", kind, params);
   const first = await fetchJson<{ results: TmdbResult[]; total_pages: number }>(url(`/discover/${kind}`, { ...params, page: 1 }));
   if (first.results.length === 0) return [];
-  const page = 1 + rand(Math.min(first.total_pages || 1, 20));
-  if (page === 1) return first.results;
-  const more = await fetchJson<{ results: TmdbResult[] }>(url(`/discover/${kind}`, { ...params, page }));
-  return more.results.length > 0 ? more.results : first.results;
+  const maxPage = Math.min(first.total_pages || 1, 20);
+  // Distinct random pages beyond page 1 (page 1 holds the most popular titles).
+  const extra = new Set<number>();
+  while (extra.size < Math.min(count - 1, maxPage - 1)) extra.add(2 + rand(maxPage - 1));
+  const more = await Promise.all(
+    [...extra].map((p) =>
+      fetchJson<{ results: TmdbResult[] }>(url(`/discover/${kind}`, { ...params, page: p }))
+        .then((d) => d.results)
+        .catch(() => [] as TmdbResult[]),
+    ),
+  );
+  return dedupeById([...first.results, ...more.flat()]);
 }
 
 /**
@@ -160,19 +173,31 @@ async function discoverPage(kind: Kind, params: Record<string, string | number>)
  * irrelevant picks. Falls back to a popular discover when nothing resolves.
  */
 async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: Kind; results: TmdbResult[] }> {
-  const kind = pickKind(filter?.type);
   const vibeText = [filter?.query, ...(filter?.vibes ?? [])].filter(Boolean).join(" ").trim();
 
-  // Decade → release-date window (date field differs for movies vs series);
-  // minRating → vote_average floor. Applied to every /discover query below.
-  const dateKey = kind === "tv" ? "first_air_date" : "primary_release_date";
-  const constraints: Record<string, string | number> = {};
-  if (filter?.decade) {
-    constraints[`${dateKey}.gte`] = `${filter.decade}-01-01`;
-    constraints[`${dateKey}.lte`] = `${filter.decade + 9}-12-31`;
-  }
-  if (filter?.minRating) constraints["vote_average.gte"] = filter.minRating;
-  if (filter?.country) constraints["with_origin_country"] = filter.country.toUpperCase();
+  // Decade → release-date window (the date field differs for movies vs series);
+  // minRating → vote_average floor; country → origin country. Built per-kind so the
+  // popular fallback can retry the other kind with the correct date field.
+  const constraintsFor = (k: Kind): Record<string, string | number> => {
+    const dateKey = k === "tv" ? "first_air_date" : "primary_release_date";
+    const c: Record<string, string | number> = {};
+    if (filter?.decade) {
+      c[`${dateKey}.gte`] = `${filter.decade}-01-01`;
+      c[`${dateKey}.lte`] = `${filter.decade + 9}-12-31`;
+    }
+    if (filter?.minRating) c["vote_average.gte"] = filter.minRating;
+    if (filter?.country) c["with_origin_country"] = filter.country.toUpperCase();
+    return c;
+  };
+
+  // Regional/older titles rarely clear 200 votes (e.g. German 90s series), so relax
+  // the popularity floor when a country is set; without one keep it high to avoid
+  // obscure global picks.
+  const voteFloor = filter?.country ? 20 : 200;
+  const typePinned = filter?.type === "movie" || filter?.type === "series";
+
+  const kind = pickKind(filter?.type);
+  const constraints = constraintsFor(kind);
 
   let results: TmdbResult[] = [];
   if (vibeText) {
@@ -180,34 +205,46 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
       keywordIds(vibeText),
       genreIds(kind, [...(filter?.genres ?? []), ...vibeGenreHints(vibeText)]),
     ]);
-    const base = { sort_by: "popularity.desc", "vote_count.gte": 40, include_adult: "false", ...constraints };
+    const base = { sort_by: "popularity.desc", "vote_count.gte": filter?.country ? 20 : 40, include_adult: "false", ...constraints };
     if (keywords.length) {
       const withKeywords = { ...base, with_keywords: keywords.join("|") };
-      results = await discoverPage(kind, genres.length ? { ...withKeywords, with_genres: genres.join(",") } : withKeywords);
+      // Multi-page so a vibe/genre spin has a big, varied pool (not one ~20 page).
+      results = await discoverPages(kind, genres.length ? { ...withKeywords, with_genres: genres.join(",") } : withKeywords);
       // Keyword + genre can over-narrow; widen to keywords alone for more variety.
       if (results.length < 8 && genres.length) {
-        const wide = await discoverPage(kind, withKeywords);
+        const wide = await discoverPages(kind, withKeywords);
         if (wide.length > results.length) results = wide;
       }
     }
     // Keyword tag too sparse for a satisfying re-roll → blend in on-genre picks
     // (keeps the precise matches, but gives "Spin again" room to move).
-    if (results.length < 3 && genres.length) {
-      const onGenre = await discoverPage(kind, { ...base, with_genres: genres.join(",") });
+    if (results.length < 8 && genres.length) {
+      const onGenre = await discoverPages(kind, { ...base, with_genres: genres.join(",") });
       results = dedupeById([...results, ...onGenre]);
     }
   }
 
   // No vibe given, or nothing matched: a popular discover (optionally genre-filtered).
-  if (results.length === 0) {
-    const genres = await genreIds(kind, filter?.genres);
-    results = await discoverPage(kind, {
+  const popular = async (k: Kind): Promise<TmdbResult[]> => {
+    const genres = await genreIds(k, filter?.genres);
+    return discoverPages(k, {
       sort_by: "popularity.desc",
-      "vote_count.gte": 200,
+      "vote_count.gte": voteFloor,
       include_adult: "false",
-      ...constraints,
+      ...constraintsFor(k),
       ...(genres.length ? { with_genres: genres.join(",") } : {}),
     });
+  };
+  if (results.length === 0) {
+    results = await popular(kind);
+    // The movie/series choice is random and often lands on the sparser catalogue
+    // (e.g. Indian TV ~5 titles vs the far larger film list). If this side is thin
+    // and the type isn't pinned, try the other kind and keep whichever has more.
+    if (!typePinned && results.length < 15) {
+      const other: Kind = kind === "tv" ? "movie" : "tv";
+      const otherResults = await popular(other);
+      if (otherResults.length > results.length) return { kind: other, results: otherResults };
+    }
   }
   if (results.length === 0) throw new Error("TMDB returned no results");
   return { kind, results };

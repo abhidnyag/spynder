@@ -117,6 +117,21 @@ export function genreFromText(text: string): string | null {
   return Object.entries(MUSIC_GENRE_WORDS).find(([w]) => t.includes(w))?.[1] ?? null;
 }
 
+// Region (no genre chosen) → that country's local Spotify genre tag(s), so a
+// country + decade spin returns music actually from that country (a bare year query
+// caps at ~5 and is often global; a random genre ignores the market). US/GB are
+// unmapped — mainstream there is the market itself.
+const COUNTRY_GENRES: Record<string, string[]> = {
+  IN: ["bollywood", "filmi"],
+  // "k-pop" matches loosely on Spotify (returns Croatian/Indian "pop"); "korean pop"
+  // / "korean" reliably return Korean artists with high volume.
+  KR: ["korean pop", "korean"],
+  JP: ["j-pop", "j-rock"],
+  FR: ["chanson", "french"],
+  ES: ["spanish", "flamenco"],
+  DE: ["deutschrap", "schlager"],
+};
+
 // Closely-related, mood-preserving tags used to widen a thin mood pool — all
 // verified to return on-mood tracks under client-credentials.
 export const SIBLING_TAGS: Record<string, string[]> = {
@@ -143,13 +158,19 @@ const dedupeTracks = (rows: SpotifyTrack[]): SpotifyTrack[] => [...new Map(rows.
 // `pickFresh` runs out of fresh picks and starts repeating. 4 pages → up to ~40.
 const POOL_PAGES = 4;
 
+/** Fetch POOL_PAGES pages of a raw search query in parallel, de-duplicated.
+ *  (Spotify dev mode caps limit at 10, so variety comes from paging.) */
+async function pagedSearch(token: string, q: string, market: string): Promise<SpotifyTrack[]> {
+  console.log(`Spotify search: "${q}" [${market}]`);
+  const pages = await Promise.all(
+    Array.from({ length: POOL_PAGES }, (_, i) => searchTracks(token, q, i * SEARCH_LIMIT, market)),
+  );
+  return dedupeTracks(pages.flat());
+}
+
 async function moodPool(token: string, tag: string, suffix = "", market = "US"): Promise<SpotifyTrack[]> {
   // `suffix` carries an optional ` year:START-END` decade clause; `market` is the region.
-  // Page the tag in parallel (Spotify dev mode caps limit at 10, so variety = more pages).
-  const pages = await Promise.all(
-    Array.from({ length: POOL_PAGES }, (_, i) => searchTracks(token, `genre:"${tag}"${suffix}`, i * SEARCH_LIMIT, market)),
-  );
-  let pool = dedupeTracks(pages.flat());
+  let pool = await pagedSearch(token, `genre:"${tag}"${suffix}`, market);
   for (const sibling of SIBLING_TAGS[tag] ?? []) {
     if (pool.length >= 15) break;
     pool = dedupeTracks([...pool, ...(await searchTracks(token, `genre:"${sibling}"${suffix}`, 0, market))]);
@@ -179,12 +200,27 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   // De-dupe, cap at two tags to keep relevance, and never dead-end on a fully
   // unmappable description: fall back to a random genre rather than title-matching.
   const used = [...new Set(tags)].slice(0, 2);
-  if (used.length === 0) used.push(pick(TAXONOMY.MUSIC.genres).toLowerCase());
 
   // Decade → Spotify `year:` range (music has no rating, so minRating is ignored).
   const yearSuffix = filter?.decade ? ` year:${filter.decade}-${filter.decade + 9}` : "";
   // Region → Spotify market (track availability for that country).
   const market = filter?.country ?? "US";
+
+  // Country set but no genre/mood → search that region's LOCAL genres so the picks
+  // are actually from that country. For a mapped region we return its pool as-is: if
+  // nothing matches the era it stays empty, surfacing the "no results" message
+  // upstream rather than a global pick. Unmapped regions (US/GB) fall through, where
+  // the market itself is the mainstream.
+  if (used.length === 0 && filter?.country) {
+    const local = COUNTRY_GENRES[filter.country.toUpperCase()];
+    if (local) {
+      const pools = await Promise.all(local.map((g) => moodPool(token, g, yearSuffix, market)));
+      return dedupeTracks(pools.flat());
+    }
+  }
+
+  // No genre/mood (and no usable local genre) → a random genre keeps variety.
+  if (used.length === 0) used.push(pick(TAXONOMY.MUSIC.genres).toLowerCase());
 
   // Blend the (one or two) tag pools so a genre + mood request draws from both.
   const pools = await Promise.all(used.map((t) => moodPool(token, t, yearSuffix, market)));

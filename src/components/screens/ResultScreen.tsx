@@ -44,6 +44,24 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
     variables: { mode, filter, region },
     notifyOnNetworkStatusChange: true,
   });
+
+  const suggestion = data?.randomSuggestion ?? null;
+  const filtersApplied = hasActiveFilters(filter);
+  const noMatch = !loading && !suggestion && filtersApplied;
+
+  // Nothing matched the filters → fall back to an UNFILTERED random pick, shown
+  // beneath a notice, so the user always gets a suggestion rather than a dead end.
+  const {
+    data: fbData,
+    loading: fbLoading,
+    refetch: refetchFallback,
+  } = useQuery<{ randomSuggestion: Suggestion | null }>(RANDOM_SUGGESTION, {
+    variables: { mode, filter: {}, region },
+    skip: !noMatch,
+    notifyOnNetworkStatusChange: true,
+  });
+  const fallback = fbData?.randomSuggestion ?? null;
+
   const [record] = useMutation(RECORD_HISTORY);
   // Toggle favourite and update the cached Suggestion in place (no re-roll).
   const [toggleFav] = useMutation(TOGGLE_FAVORITE, {
@@ -55,18 +73,20 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
     },
   });
 
-  const suggestion = data?.randomSuggestion ?? null;
-  const spinAgain = () => refetch();
-
-  // Favouriting requires an account; send anonymous users to sign in.
-  const onFav = async () => {
-    if (!user) return router.push("/profile");
-    if (suggestion) await toggleFav({ variables: { suggestionId: suggestion.id } });
-  };
-  const onSkip = async () => {
-    if (user && suggestion) await record({ variables: { suggestionId: suggestion.id, action: "skipped" } }).catch(() => {});
-    spinAgain();
-  };
+  // Action handlers bound to a specific suggestion + its re-roll — used for both the
+  // filtered pick and the random fallback. Favouriting requires an account.
+  const handlers = (s: Suggestion | null, spin: () => void): ResultProps => ({
+    s: s as Suggestion,
+    onSpin: spin,
+    onFav: async () => {
+      if (!user) return router.push("/profile");
+      if (s) await toggleFav({ variables: { suggestionId: s.id } });
+    },
+    onSkip: async () => {
+      if (user && s) await record({ variables: { suggestionId: s.id, action: "skipped" } }).catch(() => {});
+      spin();
+    },
+  });
 
   return (
     <div className="flex flex-1 flex-col px-5 pt-3 sm:px-6 sm:pt-4">
@@ -78,14 +98,22 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
       ) : loading ? (
         // Re-rolls ("Spin again"/"Skip") → skeleton in the shape of the next result.
         <ResultSkeleton mode={mode} />
-      ) : !suggestion ? (
-        <EmptyState filter={filter} />
-      ) : mode === "MUSIC" ? (
-        <SongResult key={suggestion.id} s={suggestion} onFav={onFav} onSkip={onSkip} onSpin={spinAgain} />
-      ) : mode === "BOOK" ? (
-        <BookResult key={suggestion.id} s={suggestion} onFav={onFav} onSkip={onSkip} onSpin={spinAgain} />
+      ) : suggestion ? (
+        <ResultCard mode={mode} {...handlers(suggestion, () => refetch())} />
+      ) : noMatch ? (
+        // No filter match → tell the user, then show a random pick for the mode below.
+        <div className="flex flex-1 flex-col">
+          <NoMatchNotice mode={mode} />
+          {fbLoading && !fallback ? (
+            <SpinLoader mode={mode} />
+          ) : fallback ? (
+            <ResultCard mode={mode} {...handlers(fallback, () => refetchFallback())} />
+          ) : (
+            <EmptyState filter={filter} />
+          )}
+        </div>
       ) : (
-        <MovieResult key={suggestion.id} s={suggestion} onFav={onFav} onSkip={onSkip} onSpin={spinAgain} />
+        <EmptyState filter={filter} />
       )}
     </div>
   );
@@ -99,10 +127,11 @@ function SongResult({ s, onFav, onSkip, onSpin }: ResultProps) {
       <Media src={s.imageUrl} alt={s.title} icon="note" className="size-[clamp(11rem,52vw,13rem)]" />
       <h2 className="mt-5 text-2xl font-extrabold sm:text-3xl">{s.title}</h2>
       <p className="mt-1 text-sub">{s.artist}</p>
-      {/* Year (and any vibe chips) keep their original chip styling; genres —
-          pulled from Spotify's artist data — sit on their own row just below. */}
-      <MetaChips items={[...s.vibes, s.year]} />
-      <MetaChips items={s.genres} />
+      {/* Year keeps its chip styling; genres (Spotify artist data) and any vibes
+          sit just below as bullet-separated lines. */}
+      <MetaChips items={[s.year]} />
+      {s.genres.length > 0 && <p className="mt-2 text-[13px] text-sub">{s.genres.join(" · ")}</p>}
+      {s.vibes.length > 0 && <p className="mt-1 text-[13px] text-sub">{s.vibes.join(" · ")}</p>}
 
       <MusicPreview s={s} />
 
@@ -400,45 +429,49 @@ function MetaChips({ items }: { items: (string | number | null)[] }) {
   );
 }
 
-// Match a provider label to a Watchmode service whose names can differ slightly
-// (e.g. "Disney+" vs "Disney Plus") by comparing on alphanumerics only.
+// Two provider/service names refer to the same platform, comparing on alphanumerics
+// only ("Disney+" ≈ "Disney Plus", "Amazon Prime Video" ≈ "Prime Video").
 const normalizeProvider = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+const sameProvider = (a: string, b: string) => {
+  const x = normalizeProvider(a);
+  const y = normalizeProvider(b);
+  return x === y || x.includes(y) || y.includes(x);
+};
 
 /**
- * Where-to-watch chips. When Watchmode resolved a direct deep link for a service
- * the chip becomes a link straight to this title on that platform; services
- * without one stay as plain labels (TMDB only gives us names, not links).
+ * Where-to-watch chips. TMDB provider names (region-correct) are shown and become a
+ * direct link when Watchmode resolved a deep link for that service. Any Watchmode
+ * deep link not matched to a TMDB provider is appended too, so no link is lost (e.g.
+ * TMDB listed no providers, or Watchmode knows a service TMDB didn't).
  */
 function Providers({ items, links }: { items: string[]; links: WatchLink[] }) {
-  if (!items.length) return null;
   const chipClass = "rounded-lg border border-line px-3 py-1.5 text-[11px] font-semibold text-sub";
-  const linkFor = (name: string) => {
-    const n = normalizeProvider(name);
-    return links.find((l) => {
-      const ln = normalizeProvider(l.name);
-      return ln === n || ln.includes(n) || n.includes(ln);
-    })?.url ?? null;
-  };
+  const chips: { label: string; url: string | null }[] = items.map((p) => ({
+    label: p,
+    url: links.find((l) => sameProvider(l.name, p))?.url ?? null,
+  }));
+  for (const l of links) if (!chips.some((c) => sameProvider(c.label, l.name))) chips.push({ label: l.name, url: l.url });
+
+  if (!chips.length) return null;
   return (
     <div className="mt-4 flex flex-wrap justify-center gap-2">
-      {items.map((p) => {
-        const href = linkFor(p);
-        return href ? (
+      {chips.map((c, i) =>
+        c.url ? (
           <a
-            key={p}
-            href={href}
+            key={`${c.label}-${i}`}
+            href={c.url}
             target="_blank"
             rel="noopener noreferrer"
             className={`${chipClass} transition hover:border-accent hover:text-accent active:scale-95`}
           >
-            {p}
+            {c.label}
           </a>
         ) : (
-          <span key={p} className={chipClass}>
-            {p}
+          <span key={`${c.label}-${i}`} className={chipClass}>
+            {c.label}
           </span>
-        );
-      })}
+        ),
+      )}
     </div>
   );
 }
@@ -519,25 +552,44 @@ function SpinAgain({ onClick }: { onClick: () => void }) {
   );
 }
 
-/**
- * Shown when no pick comes back. Distinguishes a too-narrow filter (the common
- * case now that decade/rating/region are enforced) from a genuinely empty
- * catalogue, so the user knows to widen rather than think the app is broken.
- */
-function EmptyState({ filter }: { filter: SuggestionFilter }) {
-  const hasFilters = Boolean(
-    filter.decade ||
-      filter.minRating ||
-      filter.country ||
-      (filter.type && filter.type !== "either") ||
-      filter.genres?.length ||
-      filter.vibes?.length ||
-      (filter.query ?? "").trim(),
+/** Whether the user narrowed the spin at all (drives the no-match fallback + copy). */
+const hasActiveFilters = (f: SuggestionFilter) =>
+  Boolean(
+    f.decade ||
+      f.minRating ||
+      f.country ||
+      (f.type && f.type !== "either") ||
+      f.genres?.length ||
+      f.vibes?.length ||
+      (f.query ?? "").trim(),
   );
+
+/** Renders the right result card for the mode. Keyed so a new pick remounts. */
+function ResultCard({ mode, s, onFav, onSkip, onSpin }: { mode: Mode } & ResultProps) {
+  if (mode === "MUSIC") return <SongResult key={s.id} s={s} onFav={onFav} onSkip={onSkip} onSpin={onSpin} />;
+  if (mode === "BOOK") return <BookResult key={s.id} s={s} onFav={onFav} onSkip={onSkip} onSpin={onSpin} />;
+  return <MovieResult key={s.id} s={s} onFav={onFav} onSkip={onSkip} onSpin={onSpin} />;
+}
+
+/** Banner shown above the random fallback when nothing matched the filters. */
+function NoMatchNotice({ mode }: { mode: Mode }) {
+  const label = mode === "MUSIC" ? "song" : mode === "BOOK" ? "book" : "title";
+  return (
+    <div role="status" className="reveal mt-2 rounded-2xl border border-line bg-surface px-4 py-3 text-center">
+      <p className="text-sm font-semibold">No matches for those filters</p>
+      <p className="mt-1 text-[12px] leading-relaxed text-sub">
+        Nothing fit everything you picked — here&apos;s a random {label} instead. Loosen a filter and spin again.
+      </p>
+    </div>
+  );
+}
+
+/** Genuinely empty catalogue (no filters, nothing seeded) — distinct from a no-match. */
+function EmptyState({ filter }: { filter: SuggestionFilter }) {
+  const hasFilters = hasActiveFilters(filter);
   return (
     <div role="status" className="mt-20 flex flex-col items-center gap-2 px-6 text-center">
-      <p className="text-sub">{hasFilters ? "No matches for these filters." : "No suggestions yet — try seeding the database."}</p>
-      {hasFilters && <p className="text-[13px] text-faint">Try removing one — e.g. the region or decade — then spin again.</p>}
+      <p className="text-sub">{hasFilters ? "No matches — and no random pick either." : "No suggestions yet — try seeding the database."}</p>
     </div>
   );
 }
