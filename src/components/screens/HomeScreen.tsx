@@ -8,6 +8,7 @@ import { Icon } from "@/components/ui/Icon";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { BottomNav } from "@/components/ui/BottomNav";
 import { UserAvatar } from "@/components/ui/UserAvatar";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 const COPY: Record<Mode, { sub: string; caption: [string, string] }> = {
   MUSIC: {
@@ -39,7 +40,10 @@ export function HomeScreen() {
           <p className="text-[13px] text-sub">Hey there</p>
           <h1 className="text-xl font-bold sm:text-2xl">{meta.greeting}</h1>
         </div>
-        <UserAvatar />
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <UserAvatar />
+        </div>
       </header>
 
       <div className="mt-5">
@@ -49,7 +53,7 @@ export function HomeScreen() {
           label="What are you choosing?"
           options={[
             { value: "MUSIC", label: "Music" },
-            { value: "MOVIE", label: "Movies" },
+            { value: "MOVIE", label: "Movies & TV" },
             { value: "BOOK", label: "Books" },
           ]}
         />

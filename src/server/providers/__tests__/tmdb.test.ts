@@ -218,6 +218,40 @@ describe("getRandomTitle — decade & rating filters", () => {
     expect(kr.some((u) => u.includes("vote_count.gte=20") && !u.includes("vote_count.gte=200"))).toBe(true);
   });
 
+  // For a rating filter: the rating query returns matches → it's kept; it returns nothing → it's
+  // dropped, sorted by rating, to surface the best available (rather than junk or a dead-end).
+  const ratingRun = async (ratingHasMatches: boolean) => {
+    const urls: string[] = [];
+    mockFetch((url) => {
+      if (url.includes("/genre/movie/list")) return jsonOk(GENRES);
+      if (url.includes("/genre/tv/list")) return jsonOk({ genres: [] });
+      if (url.includes("/discover/")) {
+        urls.push(decodeURIComponent(url));
+        // A query that still carries the rating: rich when matches exist, else empty.
+        const withRating = url.includes("vote_average.gte");
+        return jsonOk({ total_pages: 1, results: withRating ? (ratingHasMatches ? rich() : []) : rich() });
+      }
+      if (url.includes("append_to_response")) return jsonOk({ id: 0, title: "T", vote_average: 8, overview: "", genres: [], release_date: "2005" });
+      return undefined;
+    });
+    await getRandomTitle({ type: "movie", country: "US", genres: ["Horror"], decade: 2000, minRating: 8 });
+    clearCandidateCache();
+    clearGenreCache();
+    return urls;
+  };
+
+  it("keeps the rating filter when titles match it", async () => {
+    const urls = await ratingRun(true);
+    expect(urls.every((u) => u.includes("vote_average.gte=8"))).toBe(true); // rating always present
+    expect(urls.some((u) => u.includes("sort_by=vote_average.desc"))).toBe(false); // never dropped
+  });
+
+  it("drops the rating as a last resort (best-rated first) when nothing clears it", async () => {
+    const urls = await ratingRun(false);
+    // A rating-dropped query fired, sorted by rating to surface the best available.
+    expect(urls.some((u) => u.includes("sort_by=vote_average.desc") && !u.includes("vote_average.gte"))).toBe(true);
+  });
+
   it("refines an India pick by Hindi (Bollywood) on top of the origin-country filter", async () => {
     const urls: string[] = [];
     mockDiscover(urls, rich); // rich pool (≥ MIN_POOL) → no relaxation, the language constraint stands

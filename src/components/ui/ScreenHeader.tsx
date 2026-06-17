@@ -11,9 +11,11 @@ interface ScreenHeaderProps {
   back?: boolean;
   /** Show a close (X) button that pops the history stack. */
   close?: boolean;
+  /** Extra classes for the title (e.g. "heading-strong" for pure white). */
+  titleClassName?: string;
 }
 
-export function ScreenHeader({ title, action, back, close }: ScreenHeaderProps) {
+export function ScreenHeader({ title, action, back, close, titleClassName = "" }: ScreenHeaderProps) {
   const router = useRouter();
   return (
     <header className="flex items-center justify-between py-1">
@@ -23,7 +25,7 @@ export function ScreenHeader({ title, action, back, close }: ScreenHeaderProps) 
             <Icon name="chevron" size={20} className="rotate-180" />
           </button>
         )}
-        <h1 className="text-base font-bold">{title}</h1>
+        <h1 className={`text-base font-bold ${titleClassName}`}>{title}</h1>
       </div>
       {action && (
         <button type="button" onClick={action.onClick} className="text-[13px] text-sub">

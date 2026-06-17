@@ -230,14 +230,14 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
   // Decade → release-date window (the date field differs for movies vs series);
   // minRating → vote_average floor; country → origin country (+ native language). Built
   // per-kind so the popular fallback can retry the other kind with the correct date field.
-  const constraintsFor = (k: Kind, includeLang = true): Record<string, string | number> => {
+  const constraintsFor = (k: Kind, includeLang = true, includeRating = true): Record<string, string | number> => {
     const dateKey = k === "tv" ? "first_air_date" : "primary_release_date";
     const c: Record<string, string | number> = {};
     if (filter?.decade) {
       c[`${dateKey}.gte`] = `${filter.decade}-01-01`;
       c[`${dateKey}.lte`] = `${filter.decade + 9}-12-31`;
     }
-    if (filter?.minRating) c["vote_average.gte"] = filter.minRating;
+    if (includeRating && filter?.minRating) c["vote_average.gte"] = filter.minRating;
     if (filter?.country) {
       const code = filter.country.toUpperCase();
       c["with_origin_country"] = code;
@@ -305,11 +305,18 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
   const MIN_POOL = 20;
   const langForCountry = filter?.country ? COUNTRY_LANGUAGES[filter.country.toUpperCase()] : undefined;
 
-  // A popularity-sorted discover for one kind at a given vote floor (and optional language).
-  const discoverPopular = async (k: Kind, voteGte: number, includeLang = true): Promise<TmdbResult[]> => {
+  // A discover for one kind at a given vote floor (and optional language/rating). Sorted by
+  // popularity by default; the rating-drop fallback sorts by rating to surface the best available.
+  const discoverPopular = async (
+    k: Kind,
+    voteGte: number,
+    includeLang = true,
+    includeRating = true,
+    sort = "popularity.desc",
+  ): Promise<TmdbResult[]> => {
     const genres = await genreIds(k, filter?.genres, true); // loose: series gets a TV approximation
     const withGenres: Record<string, string> = genres.length ? { with_genres: genres.join(",") } : {};
-    return discoverPages(k, { sort_by: "popularity.desc", include_adult: "false", "vote_count.gte": voteGte, ...withGenres, ...constraintsFor(k, includeLang) });
+    return discoverPages(k, { sort_by: sort, include_adult: "false", "vote_count.gte": voteGte, ...withGenres, ...constraintsFor(k, includeLang, includeRating) });
   };
 
   // Grow a thin country pool, PRESERVING country + language as long as possible:
@@ -330,6 +337,15 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
       if (res.length < MIN_POOL && langForCountry) {
         const noLang = await discoverPopular(k, relaxedFloor, false);
         if (noLang.length > res.length) res = noLang;
+      }
+      // Only when NOTHING clears the rating (e.g. US horror movies of the 2000s rated 8+ barely
+      // exist) drop it as a last resort, returning real well-voted titles of the genre/decade/
+      // country (Dawn of the Dead…) instead of junk or a dead-end. If even a handful match the
+      // rating, keep them — the user asked for that rating, so don't dilute it with lower picks.
+      if (res.length === 0 && filter?.minRating) {
+        // Sort by rating so we surface the BEST-rated available (Dawn of the Dead ★7.1), the
+        // closest thing to the rating they wanted — not just any popular low-rated title.
+        res = await discoverPopular(k, relaxedFloor, langForCountry ? false : true, false, "vote_average.desc");
       }
     }
     return res;

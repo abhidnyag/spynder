@@ -41,7 +41,8 @@ export function CustomizeScreen() {
 
   return (
     <div className="flex flex-1 flex-col gap-5 px-5 pb-6 pt-3 sm:px-6 sm:pt-4">
-      <ScreenHeader title="Customize" back action={{ label: "Reset", onClick: () => setDraft(EMPTY_DRAFT) }} />
+      <ScreenHeader title="Customize" titleClassName="heading-strong" back action={{ label: "Reset", onClick: () => setDraft(EMPTY_DRAFT) }} />
+      <p className="-mt-3 text-[13px] text-sub">Pick a mood — or leave blank for a total surprise</p>
 
       {mode === "MOVIE" && (
         <Section title="Type">

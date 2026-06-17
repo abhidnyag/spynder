@@ -4,10 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useMutation } from "@apollo/client";
 import { useAuth } from "@/context/AuthContext";
+import { useTheme, type Theme } from "@/context/ThemeContext";
 import { REQUEST_PASSWORD_RESET, RESET_PASSWORD } from "@/graphql/operations";
 import { validateEmail, validatePassword } from "@/lib/validation";
 import { Button } from "@/components/ui/Button";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { BottomNav } from "@/components/ui/BottomNav";
 import { Icon } from "@/components/ui/Icon";
 
@@ -19,6 +21,7 @@ export function ProfileScreen({ resetToken }: { resetToken?: string }) {
   return (
     <div className="flex flex-1 flex-col px-5 pt-3">
       <ScreenHeader title="Profile" />
+      <Appearance />
       {loading ? (
         <p role="status" className="mt-10 text-center text-sub">Loading…</p>
       ) : user ? (
@@ -28,6 +31,25 @@ export function ProfileScreen({ resetToken }: { resetToken?: string }) {
       )}
       <BottomNav />
     </div>
+  );
+}
+
+/* ----------------------------- appearance ----------------------------- */
+function Appearance() {
+  const { theme, setTheme } = useTheme();
+  return (
+    <section className="mt-3">
+      <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-faint">Appearance</h2>
+      <SegmentedControl<Theme>
+        value={theme}
+        onChange={setTheme}
+        label="Theme"
+        options={[
+          { value: "light", label: "Light" },
+          { value: "dark", label: "Dark" },
+        ]}
+      />
+    </section>
   );
 }
 
@@ -54,7 +76,7 @@ function AccountView() {
             <Icon name="chevron" size={18} className="text-faint" />
           </Link>
         </li>
-        {["Connected services", "Appearance", "About Spynder"].map((row) => (
+        {["Connected services", "About Spynder"].map((row) => (
           <li key={row} className="flex items-center justify-between border-b border-line py-4 text-sm text-sub">
             {row}
             <Icon name="chevron" size={18} className="text-faint" />

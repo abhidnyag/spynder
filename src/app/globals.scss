@@ -28,6 +28,19 @@
   --accent: #7d9a74; /* Books — muted sage green */
 }
 
+/* Light ("white") theme — overrides only the neutral tokens; the accent stays mode-driven
+   (the muted accents read on both backgrounds). Toggled via [data-theme="light"] on <html>
+   by ThemeContext. `:root[data-theme]` outweighs the base `:root` regardless of source order. */
+:root[data-theme="light"] {
+  --bg: #f5f5f8;
+  --surface: #ffffff;
+  --surface-2: #ececf1;
+  --line: #e2e2e9;
+  --ink: #1a1a20;
+  --sub: #55555f;
+  --faint: #78787f;
+}
+
 @layer base {
   html,
   body {
@@ -69,6 +82,14 @@
 }
 
 @layer components {
+  /* Pure-white heading on the dark theme; falls back to the ink token on the
+     light theme so it stays readable on the white background. */
+  .heading-strong {
+    color: #ffffff;
+  }
+  :root[data-theme="light"] .heading-strong {
+    color: var(--ink);
+  }
   .card {
     @apply rounded-2xl border border-line bg-surface;
   }
