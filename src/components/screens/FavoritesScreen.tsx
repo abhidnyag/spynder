@@ -74,12 +74,9 @@ export function FavoritesScreen() {
           </li>
         ) : (
           items.map((s) => {
-            const meta =
-              s.mode === "MUSIC"
-                ? s.artist
-                : s.mode === "BOOK"
-                  ? [s.artist, s.year].filter(Boolean).join(" · ")
-                  : [s.type === "series" ? "Series" : "Movie", s.year].filter(Boolean).join(" · ");
+            // Consistent "<descriptor> · <year>": artist for music/books, type for movies/series.
+            const descriptor = s.mode === "MOVIE" ? (s.type === "series" ? "Series" : "Movie") : s.artist;
+            const meta = [descriptor, s.year].filter(Boolean).join(" · ");
             const cover = (
               <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl border border-line bg-surface text-sub">
                 {s.imageUrl ? (

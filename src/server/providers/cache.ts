@@ -92,12 +92,21 @@ export async function cachedPool<T>(key: string | null, produce: () => Promise<T
   if (hit && hit.expires > Date.now()) return hit.value as T;
 
   const value = await produce();
-  if (store.size >= MAX_ENTRIES) store.clear(); // simple bound — pools rebuild cheaply
+  if (store.size >= MAX_ENTRIES) {
+    store.clear(); // simple bound — pools rebuild cheaply
+    servedStore.clear();
+  }
   store.set(key, { value, expires: Date.now() + TTL_MS });
+  // NB: the per-key served set is intentionally NOT reset here. A pool rebuilds every TTL
+  // (or on a cold process) with fresh random pages; keeping the served set across rebuilds
+  // means already-shown titles aren't repeated when the new pool overlaps the old (page 1 is
+  // always the most-popular slice). It only resets once the whole pool is exhausted (in
+  // pickUnseen) or the cache is cleared.
   return value;
 }
 
-/** Test helper — reset between cases so cached pools don't leak across tests. */
+/** Test helper — reset between cases so cached pools/served sets don't leak across tests. */
 export function clearCandidateCache(): void {
   store.clear();
+  servedStore.clear();
 }

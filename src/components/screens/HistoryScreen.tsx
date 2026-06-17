@@ -85,12 +85,9 @@ export function HistoryScreen() {
 
 function Row({ entry }: { entry: HistoryEntry }) {
   const { suggestion: s, action } = entry;
-  const subtitle =
-    s.mode === "MUSIC"
-      ? `${s.artist} · ${action}`
-      : s.mode === "BOOK"
-        ? `${s.artist ?? "Book"} · ${action}`
-        : `${s.type === "series" ? "Series" : "Movie"} · ${action}`;
+  // Consistent "<descriptor> · <action>": artist for music/books, type for movies/series.
+  const descriptor = s.mode === "MOVIE" ? (s.type === "series" ? "Series" : "Movie") : s.artist;
+  const subtitle = [descriptor, action].filter(Boolean).join(" · ");
   const inner = (
     <>
       <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl border border-line bg-surface text-sub">

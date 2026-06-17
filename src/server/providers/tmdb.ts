@@ -4,10 +4,9 @@ import {
   ProviderUnavailable,
   fetchJson,
   pick,
-  pickFresh,
   rand,
 } from "./types";
-import { cachedPool, filterKey, isCacheableFilter } from "./cache";
+import { cachedPool, filterKey, isCacheableFilter, pickUnseen } from "./cache";
 import { watchLinksForTmdb } from "./watchmode";
 
 const API = "https://api.themoviedb.org/3";
@@ -49,6 +48,11 @@ const COUNTRY_LANGUAGES: Record<string, string> = {
   FR: "fr", // French
   ES: "es", // Spanish
   DE: "de", // German
+  RU: "ru", // Russian
+  IT: "it", // Italian
+  CN: "zh", // Chinese
+  SE: "sv", // Swedish
+  // IE (Ireland) stays unmapped — Irish film/TV is English.
 };
 
 interface TmdbResult {
@@ -245,10 +249,13 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
     return c;
   };
 
-  // Regional/older titles rarely clear 200 votes (e.g. German 90s series), so relax
-  // the popularity floor when a country is set; without one keep it high to avoid
-  // obscure global picks.
-  const voteFloor = filter?.country ? 20 : 200;
+  // Small regional/older catalogues rarely clear 200 votes (e.g. German 90s series), so relax
+  // the popularity floor for those. But the big English markets (US/GB) ARE the mainstream
+  // catalogue — a low floor there lets obscure junk through (low-vote series, adult anthologies
+  // mis-tagged "sci-fi"), so keep them at the high floor like a no-country spin. A thin US+genre
+  // +decade combo still relaxes via grow() below.
+  const bigMarket = filter?.country ? ["US", "GB"].includes(filter.country.toUpperCase()) : false;
+  const voteFloor = !filter?.country || bigMarket ? 200 : 20;
   const typePinned = filter?.type === "movie" || filter?.type === "series";
 
   // A selected genre may exist for only ONE kind — TMDB's TV genre list has no
@@ -310,13 +317,18 @@ async function discoverPool(filter?: SuggestionFilter | null): Promise<{ kind: K
   //      keeps real titles while dropping untrusted 0–4-vote noise (turns ~5 into ~50);
   //   2) only for a genuinely tiny catalogue, drop the language as a last resort so the
   //      spin still returns titles rather than cycling the same handful.
+  // Relaxed vote floor when growing a thin pool. For small regional catalogues a handful of
+  // votes is all a real title has, so ≥5. But in the big US/GB markets ≥5 surfaces unreliable
+  // ratings — a movie "★10" from 5 voters, parody shorts, making-of docs — which is glaring once
+  // a rating filter is set; keep a meaningful floor there so the rating stays trustworthy.
+  const relaxedFloor = bigMarket ? 50 : 5;
   const grow = async (k: Kind, pool: TmdbResult[]): Promise<TmdbResult[]> => {
     let res = pool;
     if (res.length < MIN_POOL && filter?.country) {
-      const lower = await discoverPopular(k, 5);
+      const lower = await discoverPopular(k, relaxedFloor);
       if (lower.length > res.length) res = lower;
       if (res.length < MIN_POOL && langForCountry) {
-        const noLang = await discoverPopular(k, 5, false);
+        const noLang = await discoverPopular(k, relaxedFloor, false);
         if (noLang.length > res.length) res = noLang;
       }
     }
@@ -362,7 +374,7 @@ export async function getRandomTitle(
   const key = isCacheableFilter(filter) ? filterKey("MOVIE", filter) : null;
   const { kind, results } = await cachedPool(key, () => discoverPool(filter));
 
-  const chosen = pickFresh(results, (r) => `tmdb:${kind}:${r.id}`, exclude);
+  const chosen = pickUnseen(key, results, (r) => `tmdb:${kind}:${r.id}`, exclude);
   // One details call (watch providers + videos + credits appended) fills runtime,
   // where-to-watch, trailer, and the director + top cast. In parallel, Watchmode
   // resolves direct per-platform deep links (no-op without WATCHMODE_API_KEY).

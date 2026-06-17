@@ -62,7 +62,7 @@ describe("getRandomBook", () => {
     expect(s.genres).toEqual(["Sci-Fi"]);
   });
 
-  it("searches the free-text vibe alone (no forced subject) when no genre chip is given", async () => {
+  it("maps a content word in the description to a subject (cozy mystery → Mystery subject)", async () => {
     let query = "";
     mockFetch((url) => {
       if (url.includes("openlibrary.org/search.json")) {
@@ -74,8 +74,91 @@ describe("getRandomBook", () => {
 
     await getRandomBook({ query: "cozy mystery" });
 
-    // Relevance search on the vibe — not narrowed to a random subject.
-    expect(query).toBe("cozy mystery");
+    // "mystery" → a CONTENT subject (finds mysteries, not books with "mystery" in the title);
+    // "cozy" has no subject mapping, so it stays as a free-text relevance term.
+    expect(query).toBe('subject:"Mystery" cozy');
+  });
+
+  it("maps a vibe description to a content subject, combined with the country subject", async () => {
+    let query = "";
+    mockFetch((url) => {
+      if (url.includes("openlibrary.org/search.json")) {
+        query ||= qOf(url); // capture the PRIMARY query (a sparse pool may also fire a relaxed one)
+        return jsonOk({ numFound: 1, docs: [DOC] });
+      }
+      return undefined;
+    });
+
+    await getRandomBook({ country: "IN", query: "futuristic" });
+
+    // "futuristic" → Science Fiction, expressed as the national genre heading "Science
+    // fiction, Indic" (real Indian SF), not a literal title match or a global pick.
+    expect(query).toBe('subject:"Science fiction, Indic"');
+  });
+
+  it("builds the national-genre heading for a country + genre (India + Sci-Fi)", async () => {
+    let query = "";
+    mockFetch((url) => {
+      if (url.includes("openlibrary.org/search.json")) {
+        query ||= qOf(url);
+        return jsonOk({ numFound: 9, docs: [DOC] });
+      }
+      return undefined;
+    });
+
+    await getRandomBook({ country: "IN", genres: ["Sci-Fi"] });
+
+    // Real Indian SF via the combined heading, not "Indic fiction" AND "Science Fiction".
+    expect(query).toBe('subject:"Science fiction, Indic"');
+  });
+
+  it("maps mythology-related words to their subject (celtic → Celtic mythology)", async () => {
+    let query = "";
+    mockFetch((url) => {
+      if (url.includes("openlibrary.org/search.json")) {
+        query = qOf(url);
+        return jsonOk({ numFound: 1, docs: [DOC] });
+      }
+      return undefined;
+    });
+
+    await getRandomBook({ query: "celtic" });
+
+    // A named tradition maps to its specific subject, not generic "Mythology".
+    expect(query).toBe('subject:"Celtic mythology"');
+  });
+
+  it("uses the country's own mythology subject (Japan + mythology → Japanese mythology)", async () => {
+    let query = "";
+    mockFetch((url) => {
+      if (url.includes("openlibrary.org/search.json")) {
+        query ||= qOf(url);
+        return jsonOk({ numFound: 1, docs: [DOC] });
+      }
+      return undefined;
+    });
+
+    await getRandomBook({ country: "JP", query: "mythology" });
+
+    // Myth books are tagged "Japanese mythology", not "Japanese fiction" — use that subject
+    // and drop the conflicting fiction clause.
+    expect(query).toBe('subject:"Japanese mythology"'); // primary query (relaxation may add another)
+  });
+
+  it("drops the fiction-only country subject for a non-fiction genre", async () => {
+    let query = "";
+    mockFetch((url) => {
+      if (url.includes("openlibrary.org/search.json")) {
+        query = qOf(url);
+        return jsonOk({ numFound: 1, docs: [DOC] });
+      }
+      return undefined;
+    });
+
+    await getRandomBook({ country: "IN", genres: ["Non-fiction"], query: "physics" });
+
+    // "Indic fiction" would contradict non-fiction → country dropped; Nonfiction + text remain.
+    expect(query).toBe('subject:"Nonfiction" physics');
   });
 
   it("seeds a random subject only when there's nothing to search", async () => {
@@ -114,5 +197,23 @@ describe("getRandomBook", () => {
 
     expect(query).toContain("first_publish_year:[1990 TO 1999]");
     expect(s.id).toBe("openlib:HIGH"); // only the 4.6 book clears the 4+ filter
+  });
+
+  it("applies the country as a nationality subject (Korea → Korean fiction) and stacks with genre", async () => {
+    let url0 = "";
+    mockFetch((url) => {
+      if (url.includes("openlibrary.org/search.json")) {
+        url0 ||= url; // PRIMARY query (a sparse pool may also fire a relaxed one)
+        return jsonOk({ numFound: 1, docs: [DOC] });
+      }
+      return undefined;
+    });
+
+    await getRandomBook({ country: "KR", genres: ["Mystery"] });
+
+    // Country + genre → the national genre heading "Detective and mystery stories, Korean"…
+    expect(qOf(url0)).toBe('subject:"Detective and mystery stories, Korean"');
+    // …and the edition language stays English (not Korean translations of bestsellers).
+    expect(new URL(url0).searchParams.get("language")).toBe("eng");
   });
 });

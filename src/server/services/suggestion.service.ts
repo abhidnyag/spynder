@@ -82,16 +82,20 @@ async function persist(prisma: PrismaClient, ext: ExternalSuggestion, userId: st
   return { ...ext, watchLinks: ext.watchLinks ?? [], cast: ext.cast ?? [] };
 }
 
-// How many recent picks to avoid repeating before allowing them again. Passed to
-// the provider so it picks a fresh candidate from the pool rather than re-rolling.
-const RECENT_WINDOW = 15;
+// How many recent picks to avoid repeating before allowing them again. This is the
+// DB-backed half of the no-repeat guarantee (the provider also tracks served ids per pool
+// in memory). It must comfortably exceed a typical candidate pool (movies ~60–100) so that
+// EVERY distinct title is shown before any repeat — even when the in-memory served set is
+// cold (fresh process / serverless). Too small and a large pool repeats after ~window picks.
+const RECENT_WINDOW = 80;
 // Each re-roll is a fresh round of API calls, so keep it low to stay fast.
 const PROVIDER_RETRIES = 2;
 // Hard ceiling on live-provider work per spin; past this we serve the seed instantly.
 const PROVIDER_BUDGET_MS = 4000;
-// Open Library's filtered queries (decade/language) are slow on a cold cache —
-// often 3–5s — so books get a larger budget; once cached the next spins are instant.
-const BOOK_PROVIDER_BUDGET_MS = 8000;
+// Open Library's filtered queries are slow on a cold cache — national-genre subjects
+// (e.g. "Science fiction, Indic") can take ~7–9s — so books get a larger budget; once
+// cached the next spins are instant.
+const BOOK_PROVIDER_BUDGET_MS = 11000;
 
 /** The ids most recently shown for this mode + user, so "Spin again" can skip them. */
 async function recentlyPickedIds(prisma: PrismaClient, mode: Mode, userId: string | null): Promise<Set<string>> {

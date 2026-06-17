@@ -1,12 +1,11 @@
 import { TAXONOMY } from "@/lib/taxonomy";
-import { cachedPool, filterKey, isCacheableFilter } from "./cache";
+import { cachedPool, filterKey, isCacheableFilter, pickUnseen } from "./cache";
 import {
   type ExternalSuggestion,
   type SuggestionFilter,
   ProviderUnavailable,
   fetchJson,
   pick,
-  pickFresh,
   timeoutSignal,
   titleCase,
 } from "./types";
@@ -231,8 +230,14 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
       // pool (→ a silent "no matches" for every country+decade). Splitting keeps the
       // burst to ~POOL_PAGES total while still pooling ~40 candidates across the genres.
       const pages = Math.max(1, Math.ceil(POOL_PAGES / local.length));
-      const pools = await Promise.all(local.map((g) => moodPool(token, g, yearSuffix, market, pages)));
-      return dedupeTracks(pools.flat());
+      let pool = dedupeTracks((await Promise.all(local.map((g) => moodPool(token, g, yearSuffix, market, pages)))).flat());
+      // The decade can empty a local catalogue (e.g. Bollywood has little tagged in the 2020s
+      // or 1940s on Spotify). Rather than dead-end to "no results", drop the year and return the
+      // country's music from ANY era — still actually from that country, just not that decade.
+      if (pool.length === 0 && yearSuffix) {
+        pool = dedupeTracks((await Promise.all(local.map((g) => moodPool(token, g, "", market, pages)))).flat());
+      }
+      return pool;
     }
   }
 
@@ -256,7 +261,7 @@ export async function getRandomTrack(
   const items = await cachedPool(key, () => searchPool(token, filter));
   if (items.length === 0) throw new Error("Spotify returned no tracks");
 
-  const track = pickFresh(items, (t) => `spotify:${t.id}`, exclude);
+  const track = pickUnseen(key, items, (t) => `spotify:${t.id}`, exclude);
   const artistId = track.artists[0]?.id;
 
   // Only the artist-genres lookup is resolved up front. The 30-sec preview (a slow

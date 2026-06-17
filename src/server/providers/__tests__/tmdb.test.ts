@@ -192,6 +192,32 @@ describe("getRandomTitle — decade & rating filters", () => {
   const rich = () => Array.from({ length: 20 }, (_, i) => ({ id: i, title: `T${i}`, vote_average: 7, overview: "", poster_path: null, release_date: "2015" }));
   const sparse = (n: number) => Array.from({ length: n }, (_, i) => ({ id: 900 + i, title: `S${i}`, vote_average: 7, overview: "", poster_path: null, release_date: "1965" }));
 
+  it("uses the high popularity floor for big markets (US) and the low floor for regional ones (KR)", async () => {
+    const floorFor = async (country: string) => {
+      const urls: string[] = [];
+      mockFetch((url) => {
+        if (url.includes("/genre/movie/list")) return jsonOk(GENRES);
+        if (url.includes("/genre/tv/list")) return jsonOk({ genres: [{ id: 35, name: "Comedy" }] });
+        if (url.includes("/discover/")) {
+          urls.push(decodeURIComponent(url));
+          return jsonOk({ total_pages: 1, results: rich() }); // ≥ MIN_POOL → no grow relaxation
+        }
+        if (url.includes("append_to_response")) return jsonOk({ id: 0, title: "T", vote_average: 7, overview: "", genres: [], release_date: "1995" });
+        return undefined;
+      });
+      await getRandomTitle({ type: "movie", country, genres: ["Comedy"], decade: 1990 });
+      clearCandidateCache();
+      clearGenreCache();
+      return urls;
+    };
+
+    // US (the mainstream catalogue) keeps the high floor so obscure low-vote junk is filtered.
+    expect((await floorFor("US")).some((u) => u.includes("vote_count.gte=200"))).toBe(true);
+    // KR (a smaller regional catalogue) uses the relaxed floor so it doesn't dead-end.
+    const kr = await floorFor("KR");
+    expect(kr.some((u) => u.includes("vote_count.gte=20") && !u.includes("vote_count.gte=200"))).toBe(true);
+  });
+
   it("refines an India pick by Hindi (Bollywood) on top of the origin-country filter", async () => {
     const urls: string[] = [];
     mockDiscover(urls, rich); // rich pool (≥ MIN_POOL) → no relaxation, the language constraint stands

@@ -88,6 +88,35 @@ The single backend entry point is the Apollo Server route handler at
   names, and add ARIA roles/attributes only when no native element fits. Keep this
   knowledge up to date with evolving accessibility standards as the codebase changes.
 
+## Don't break existing features (no regressions)
+
+Every edit, new change, or new feature MUST preserve all existing behaviour. Adding
+something new is never an excuse for breaking something that already works. Before you
+consider a change complete:
+
+- **Understand before you change.** Read the surrounding code and find every caller of
+  anything you touch (functions, components, GraphQL fields, exported types). Don't
+  change a shared signature, prop, schema field, or return shape without updating every
+  consumer.
+- **Prefer additive changes.** Extend rather than replace. When you must alter existing
+  behaviour, make it backward-compatible (optional args/props with safe defaults) unless
+  the user explicitly asked for a breaking change.
+- **Run the gates and they must pass.** `npm run typecheck`, `npm run lint`, and
+  `npm test` must all be green — for the whole suite, not just files you touched. If a
+  pre-existing test now fails because of your change, fix your change (or, only if the
+  old behaviour was genuinely wrong, update the test and say why). Never delete, skip,
+  or weaken a test just to make it pass.
+- **Add coverage for new behaviour.** New features or bug fixes get a test that would
+  fail without your change. Provider tests stay offline (mock `fetch`).
+- **Protect the invariants documented above.** Keep resolvers thin, preserve the
+  graceful-degradation fallbacks (`Suggestions never dead-end`), keep history recording
+  intact, keep theming token-driven, and keep accessibility intact.
+- **Verify the affected user flow.** For UI or suggestion-path changes, sanity-check the
+  real flow (spin → filter → save/skip → history/favorites) still works end to end, not
+  just that it compiles.
+- **Report honestly.** If something is broken, partially working, or untested, say so
+  with the evidence (test output) rather than claiming success.
+
 ## Environment
 
 Copy `.env.example` to `.env`. `DATABASE_URL` defaults to the bundled docker-compose

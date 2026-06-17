@@ -132,17 +132,18 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
 
 /* ----------------------------- music ----------------------------- */
 function SongResult({ s, onFav, onSkip, onSpin }: ResultProps) {
+  // Same shape as Movie/Book: a meta text line (year here), then genres as chips.
+  const metaLine = [s.year].filter(Boolean).join("  ·  ");
+
   return (
     <div className="reveal flex flex-1 flex-col items-center pt-2 text-center">
       <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-accent">Random song for you</p>
       <Media src={s.imageUrl} alt={s.title} icon="note" className="size-[clamp(11rem,52vw,13rem)]" />
-      <h2 className="mt-5 text-2xl font-extrabold sm:text-3xl">{s.title}</h2>
-      <p className="mt-1 text-sub">{s.artist}</p>
-      {/* Year keeps its chip styling; genres (Spotify artist data) and any vibes
-          sit just below as bullet-separated lines. */}
-      <MetaChips items={[s.year]} />
-      {s.genres.length > 0 && <p className="mt-2 text-[13px] text-sub">{s.genres.join(" · ")}</p>}
-      {s.vibes.length > 0 && <p className="mt-1 text-[13px] text-sub">{s.vibes.join(" · ")}</p>}
+      <h2 className="mt-4 text-xl font-extrabold leading-tight sm:text-2xl">{s.title}</h2>
+      {s.artist && <p className="mt-1 text-sub">{s.artist}</p>}
+      {metaLine && <p className="mt-2 text-[13px] font-semibold text-sub">{metaLine}</p>}
+      <MetaChips items={s.genres} />
+      {s.vibes.length > 0 && <p className="mt-2 text-[13px] text-sub">{s.vibes.join(" · ")}</p>}
 
       <MusicPreview s={s} />
 
@@ -317,7 +318,7 @@ function MovieResult({ s, onFav, onSkip, onSpin }: ResultProps) {
       <p className="mt-2 text-[13px] font-semibold text-sub">{metaLine}</p>
       <MetaChips items={s.genres} />
       <Credits director={s.director} cast={s.cast} />
-      {s.synopsis && <p className="mt-4 line-clamp-4 text-[13px] leading-relaxed text-sub">{s.synopsis}</p>}
+      {s.synopsis && <p className="mt-4 whitespace-pre-line text-[13px] leading-relaxed text-sub">{s.synopsis}</p>}
 
       <Providers items={s.providers} links={s.watchLinks} providerUrl={s.providerUrl} />
 
@@ -345,7 +346,7 @@ function BookResult({ s, onFav, onSkip, onSpin }: ResultProps) {
       {s.artist && <p className="mt-1 text-sub">{s.artist}</p>}
       {metaLine && <p className="mt-2 text-[13px] font-semibold text-sub">{metaLine}</p>}
       <MetaChips items={s.genres} />
-      {s.synopsis && <p className="mt-4 line-clamp-4 text-[13px] leading-relaxed text-sub">{s.synopsis}</p>}
+      {s.synopsis && <p className="mt-4 whitespace-pre-line text-[13px] leading-relaxed text-sub">{s.synopsis}</p>}
 
       <Providers items={s.providers} links={s.watchLinks} />
 

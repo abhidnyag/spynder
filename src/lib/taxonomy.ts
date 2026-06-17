@@ -47,6 +47,11 @@ export const REGIONS: { label: string; code: string; lang: string }[] = [
   { label: "France", code: "FR", lang: "fre" },
   { label: "Spain", code: "ES", lang: "spa" },
   { label: "Germany", code: "DE", lang: "ger" },
+  { label: "Russia", code: "RU", lang: "rus" },
+  { label: "Italy", code: "IT", lang: "ita" },
+  { label: "China", code: "CN", lang: "chi" },
+  { label: "Ireland", code: "IE", lang: "eng" },
+  { label: "Sweden", code: "SE", lang: "swe" },
 ];
 
 /** MARC language code for a region (books); defaults to English. */
