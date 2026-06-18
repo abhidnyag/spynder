@@ -42,7 +42,7 @@ const TV_GENRE_FALLBACKS: Record<string, string[]> = {
 // `discoverPool`. US/GB stay unmapped: English is the default and origin country already
 // pins them.
 const COUNTRY_LANGUAGES: Record<string, string> = {
-  IN: "hi", // Hindi — Bollywood, India's largest industry
+  IN: "hi", // Hindi — India's largest industry
   KR: "ko", // Korean
   JP: "ja", // Japanese
   FR: "fr", // French
