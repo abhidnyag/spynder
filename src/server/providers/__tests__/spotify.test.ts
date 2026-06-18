@@ -18,7 +18,7 @@ const tokenRoute = (url: string) => (url.includes("/api/token") ? jsonOk({ acces
 beforeEach(() => {
   process.env.SPOTIFY_CLIENT_ID = "id";
   process.env.SPOTIFY_CLIENT_SECRET = "secret";
-  // Deterministic random offset (rand(20) -> 10) so the two page pulls differ.
+  // Deterministic Math.random so pickFresh's choice is stable across runs.
   vi.spyOn(Math, "random").mockReturnValue(0.5);
 });
 afterEach(() => {
@@ -33,6 +33,7 @@ describe("vibeGenreTag", () => {
     expect(vibeGenreTag("energetic workout")).toBe("workout");
     expect(vibeGenreTag("Sad")).toBe("acoustic"); // not the junk "sad" tag
     expect(vibeGenreTag("Romantic")).toBe("jazz"); // not the junk "romance" tag
+    expect(vibeGenreTag("Party")).toBe("dance"); // not "party" (that tag returns German Schlager)
     expect(vibeGenreTag("xyzzy")).toBeNull();
   });
 });
@@ -183,14 +184,14 @@ describe("getRandomTrack — a typed vibe", () => {
     expect(queries.every((q) => q === 'genre:"pop" year:1990-1999')).toBe(true);
   });
 
-  it("country + decade (no genre) searches the region's local genres in its market", async () => {
-    const calls: { q: string; market: string; offset: string }[] = [];
+  it("India + decade searches the free-text `bollywood` keyword + year: in the IN market (popular Hindi)", async () => {
+    const calls: { q: string; market: string }[] = [];
     mockFetch((url) => {
       const tok = tokenRoute(url);
       if (tok) return tok;
       if (url.includes("/search?type=track")) {
         const p = search(url);
-        calls.push({ q: decodeURIComponent(p.get("q") ?? ""), market: p.get("market") ?? "", offset: p.get("offset") ?? "" });
+        calls.push({ q: decodeURIComponent(p.get("q") ?? ""), market: p.get("market") ?? "" });
         return jsonOk({ tracks: { items: tracks(10, `${p.get("q")}${p.get("offset")}_`) } });
       }
       if (url.includes("/artists/")) return jsonOk({ genres: [] });
@@ -199,13 +200,150 @@ describe("getRandomTrack — a typed vibe", () => {
 
     await getRandomTrack({ country: "IN", decade: 1990 });
 
-    // Both of India's local genres are searched, year-scoped, in the IN market —
-    // never a global/marketless query.
+    // Free-text `bollywood year:1990-1999` (verified live to return popular 90s Hindi), in the IN
+    // market — NOT the `genre:"bollywood"` operator (obscure long-tail), and no artist-genre lookup
+    // (Spotify returns empty genres for Bollywood artists, which broke the decade filter).
+    expect(calls.length).toBeGreaterThan(0);
     expect(calls.every((c) => c.market === "IN")).toBe(true);
-    expect(calls.some((c) => c.q === 'genre:"bollywood" year:1990-1999')).toBe(true);
-    expect(calls.some((c) => c.q === 'genre:"filmi" year:1990-1999')).toBe(true);
-    // Burst is capped: the page budget is split across the 2 genres (2 pages each),
-    // so the spin fires ~4 parallel searches — not 8 — to stay under Spotify's limit.
-    expect(calls.length).toBeLessThanOrEqual(4);
+    expect(calls.every((c) => c.q === "bollywood year:1990-1999")).toBe(true);
+    expect(calls.some((c) => c.q.includes("genre:"))).toBe(false); // never the genre: operator
+  });
+
+  it("India + vibe refines the bollywood keyword by the vibe word (not the global mood tag)", async () => {
+    const calls: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        const p = search(url);
+        calls.push(decodeURIComponent(p.get("q") ?? ""));
+        return jsonOk({ tracks: { items: tracks(10, `${p.get("q")}${p.get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ vibes: ["Sad"], country: "IN" });
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((q) => q === "bollywood sad")).toBe(true);
+    // The generic mood mapping (sad → acoustic) must NOT be used for India.
+    expect(calls.some((q) => q.includes("acoustic"))).toBe(false);
+  });
+
+  it("India + vibe + decade combines the bollywood keyword + vibe word + year:", async () => {
+    const calls: { q: string; market: string }[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        const p = search(url);
+        calls.push({ q: decodeURIComponent(p.get("q") ?? ""), market: p.get("market") ?? "" });
+        return jsonOk({ tracks: { items: tracks(10, `${p.get("q")}${p.get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    // The combo that previously didn't work at all.
+    await getRandomTrack({ vibes: ["Sad"], country: "IN", decade: 1990 });
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((c) => c.market === "IN")).toBe(true);
+    expect(calls.every((c) => c.q === "bollywood sad year:1990-1999")).toBe(true);
+  });
+
+  it("India relaxes within bollywood (drops the decade) when an era is empty — never another genre", async () => {
+    const calls: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        const q = decodeURIComponent(search(url).get("q") ?? "");
+        calls.push(q);
+        // Year-scoped queries are empty; the decade-dropped bollywood search returns tracks.
+        if (q.includes("year:")) return jsonOk({ tracks: { items: [] } });
+        return jsonOk({ tracks: { items: tracks(10, `${q}${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    const s = await getRandomTrack({ vibes: ["Sad"], country: "IN", decade: 1940 });
+
+    expect(s.source).toBe("spotify"); // resolves rather than dead-ending
+    expect(calls).toContain("bollywood sad year:1940-1949"); // tried the decade first
+    expect(calls).toContain("bollywood sad"); // relaxed to any era — still bollywood + sad
+    // Crucially, EVERY query stayed the bollywood keyword — never a generic/global genre.
+    expect(calls.every((q) => /^bollywood\b/.test(q))).toBe(true);
+  });
+
+  it("mapped countries anchor on their local-language keyword (Korea → k-pop, Spain → pop español)", async () => {
+    const run = async (filter: Parameters<typeof getRandomTrack>[0]) => {
+      const calls: { q: string; market: string }[] = [];
+      mockFetch((url) => {
+        const tok = tokenRoute(url);
+        if (tok) return tok;
+        if (url.includes("/search?type=track")) {
+          const p = search(url);
+          calls.push({ q: decodeURIComponent(p.get("q") ?? ""), market: p.get("market") ?? "" });
+          return jsonOk({ tracks: { items: tracks(10, `${p.get("q")}${p.get("offset")}_`) } });
+        }
+        if (url.includes("/artists/")) return jsonOk({ genres: [] });
+        return undefined;
+      });
+      await getRandomTrack(filter);
+      return calls;
+    };
+
+    const kr = await run({ vibes: ["Sad"], country: "KR", decade: 2010 });
+    expect(kr.every((c) => c.market === "KR")).toBe(true);
+    expect(kr.every((c) => c.q === "k-pop sad year:2010-2019")).toBe(true);
+    expect(kr.some((c) => c.q.includes("genre:"))).toBe(false); // free-text keyword, not genre:
+
+    clearCandidateCache();
+    const es = await run({ country: "ES", decade: 2000 });
+    expect(es.every((c) => c.market === "ES")).toBe(true);
+    expect(es.every((c) => c.q === "pop español year:2000-2009")).toBe(true);
+  });
+
+  it("an UNMAPPED country (US) keeps the generic genre+market+year search", async () => {
+    const calls: { q: string; market: string }[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        const p = search(url);
+        calls.push({ q: decodeURIComponent(p.get("q") ?? ""), market: p.get("market") ?? "" });
+        return jsonOk({ tracks: { items: tracks(10, `${p.get("q")}${p.get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ genres: ["Rock"], country: "US", decade: 2010 });
+
+    // US is unmapped → generic path: the genre tag, year-scoped, in the US market.
+    expect(calls.every((c) => c.market === "US")).toBe(true);
+    expect(calls.every((c) => c.q === 'genre:"rock" year:2010-2019')).toBe(true);
+  });
+
+  it("the Party vibe maps to genre:\"dance\" (not the broken \"party\" tag) for an unmapped country", async () => {
+    const calls: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        calls.push(decodeURIComponent(search(url).get("q") ?? ""));
+        return jsonOk({ tracks: { items: tracks(10, `${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ vibes: ["Party"], country: "US" });
+
+    expect(calls.every((q) => q === 'genre:"dance"')).toBe(true);
+    expect(calls.some((q) => q.includes('"party"'))).toBe(false);
   });
 });

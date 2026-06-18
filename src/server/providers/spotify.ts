@@ -98,7 +98,10 @@ const VIBE_GENRE_TAGS: Record<string, string> = {
   chill: "chill", relax: "chill", relaxing: "chill", rainy: "chill", sunday: "chill", calm: "chill", cozy: "chill", cleaning: "chill", mellow: "chill",
   energetic: "workout", energy: "workout", hype: "workout", pump: "workout", upbeat: "workout", workout: "workout", gym: "workout", running: "workout", exercise: "workout",
   focus: "study", study: "study", studying: "study", productive: "study", concentrate: "study", reading: "study",
-  party: "party", dance: "party", dancing: "party", club: "party", rave: "party",
+  // "party" maps to "dance" — the Spotify `genre:"party"` tag is dominated by German Ballermann/
+  // Schlager party music (verified), so it returned German junk for every market; `genre:"dance"`
+  // returns actual upbeat danceable pop (Michael Jackson, Zara Larsson, PinkPantheress…).
+  party: "dance", dance: "dance", dancing: "dance", club: "dance", rave: "dance",
   sad: "acoustic", melancholy: "acoustic", heartbreak: "acoustic", crying: "acoustic", lonely: "acoustic", emotional: "acoustic", moody: "acoustic",
   romantic: "jazz", romance: "jazz", dinner: "jazz", date: "jazz", smooth: "jazz",
   sleep: "sleep", sleepy: "sleep", bedtime: "sleep",
@@ -125,19 +128,25 @@ export function genreFromText(text: string): string | null {
   return Object.entries(MUSIC_GENRE_WORDS).find(([w]) => t.includes(w))?.[1] ?? null;
 }
 
-// Region (no genre chosen) → that country's local Spotify genre tag(s), so a
-// country + decade spin returns music actually from that country (a bare year query
-// caps at ~5 and is often global; a random genre ignores the market). US/GB are
-// unmapped — mainstream there is the market itself.
-const COUNTRY_GENRES: Record<string, string[]> = {
-  IN: ["bollywood", "filmi"],
-  // "k-pop" matches loosely on Spotify (returns Croatian/Indian "pop"); "korean pop"
-  // / "korean" reliably return Korean artists with high volume.
-  KR: ["korean pop", "korean"],
-  JP: ["j-pop", "j-rock"],
-  FR: ["chanson", "french"],
-  ES: ["spanish", "flamenco"],
-  DE: ["deutschrap", "schlager"],
+// Countries that get a local-language anchor: a free-text scene KEYWORD searched in that country's
+// market (NOT a `genre:"..."` operator, which returns obscure long-tail and can't be language-
+// scoped). Verified against the live Spotify API to return popular, decade-correct, local-language
+// music (e.g. `bollywood year:1990-1999` → 90s Hindi hits; `k-pop year:2010-2019` → K-pop;
+// `pop español …` → Spanish pop). The keyword carries the language, so the spin stays local even
+// when only the market would otherwise leak international/English tracks (the vibe case especially).
+// Unmapped regions (US/GB/IE) keep the generic genre+market+year search — those markets are
+// English-speaking (incl. Ireland), so the international catalogue IS the local mainstream.
+const COUNTRY_KEYWORD: Record<string, string> = {
+  IN: "bollywood", // Hindi film music
+  KR: "k-pop",
+  JP: "j-pop",
+  FR: "variété française",
+  DE: "german pop",
+  ES: "pop español",
+  IT: "italian pop",
+  RU: "russian pop",
+  CN: "mandopop", // Mandarin pop — "c-pop" matches nothing on Spotify and falls back to English
+  SE: "swedish pop",
 };
 
 // Closely-related, mood-preserving tags used to widen a thin mood pool — all
@@ -189,6 +198,44 @@ async function moodPool(token: string, tag: string, suffix = "", market = "US", 
 }
 
 /**
+ * A mapped country's popular, local-language pool. Searches the free-text scene `keyword` (see
+ * COUNTRY_KEYWORD) in that country's market, refined by the user's vibe/genre word and scoped by
+ * the decade (`year:`). Verified live to return popular, decade-correct, local-language music
+ * (`bollywood sad year:2010-2019` → Hindi; `k-pop party year:2010-2019` → K-pop; …). Relaxes by
+ * dropping the VIBE first (keep the decade — the user asked for the era), then the decade, so a
+ * sparse combo still returns local music rather than dead-ending.
+ */
+async function localPool(
+  token: string,
+  keyword: string,
+  market: string,
+  filter: SuggestionFilter,
+  free: string,
+  yearSuffix: string,
+): Promise<SpotifyTrack[]> {
+  // Refine by the user's own chip words ("sad", "rock"), falling back to a mood/genre word mapped
+  // from free text when no chip was picked.
+  const refineWords = [...(filter.genres ?? []), ...(filter.vibes ?? [])].map((s) => s.toLowerCase());
+  if (refineWords.length === 0 && free) {
+    const word = genreFromText(free) ?? vibeGenreTag(free);
+    if (word) refineWords.push(word);
+  }
+  const refine = refineWords.length ? ` ${[...new Set(refineWords)].join(" ")}` : "";
+
+  // `${keyword}${refine}${yearSuffix}` e.g. `bollywood sad year:2010-2019` — plain text, NOT a
+  // `genre:` operator (which returns obscure long-tail and breaks popularity ordering).
+  const pool = (suffix: string) => pagedSearch(token, `${keyword}${suffix}`, market, POOL_PAGES);
+
+  // Try most-specific first, then relax: drop the vibe (keep the decade), then the decade.
+  const tiers = [`${refine}${yearSuffix}`, yearSuffix, refine, ""].filter((v, i, a) => a.indexOf(v) === i);
+  for (const suffix of tiers) {
+    const items = await pool(suffix);
+    if (items.length) return items;
+  }
+  return [];
+}
+
+/**
  * Fetch a pool of candidate tracks for the filter (cached per query).
  *
  * The filter is resolved entirely to genre/mood **tags** searched via
@@ -216,35 +263,18 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   // Region → Spotify market (track availability for that country).
   const market = filter?.country ?? "US";
 
-  // Country set but no genre/mood → search that region's LOCAL genres so the picks
-  // are actually from that country. For a mapped region we return its pool as-is: if
-  // nothing matches the era it stays empty, surfacing the "no results" message
-  // upstream rather than a global pick. Unmapped regions (US/GB) fall through, where
-  // the market itself is the mainstream.
-  if (used.length === 0 && filter?.country) {
-    const local = COUNTRY_GENRES[filter.country.toUpperCase()];
-    if (local) {
-      // Spread the page budget ACROSS the local genres rather than paging each one
-      // fully: two genres × POOL_PAGES (4) was 8 simultaneous requests per spin — the
-      // heaviest query in the app — which tripped Spotify's rate limit and emptied the
-      // pool (→ a silent "no matches" for every country+decade). Splitting keeps the
-      // burst to ~POOL_PAGES total while still pooling ~40 candidates across the genres.
-      const pages = Math.max(1, Math.ceil(POOL_PAGES / local.length));
-      let pool = dedupeTracks((await Promise.all(local.map((g) => moodPool(token, g, yearSuffix, market, pages)))).flat());
-      // The decade can empty a local catalogue (e.g. Bollywood has little tagged in the 2020s
-      // or 1940s on Spotify). Rather than dead-end to "no results", drop the year and return the
-      // country's music from ANY era — still actually from that country, just not that decade.
-      if (pool.length === 0 && yearSuffix) {
-        pool = dedupeTracks((await Promise.all(local.map((g) => moodPool(token, g, "", market, pages)))).flat());
-      }
-      return pool;
-    }
-  }
+  // A mapped country (India, Korea, Japan, France, Germany, Spain) anchors on its local-language
+  // scene keyword so the spin stays local — the generic path below only sets the market, which
+  // leaks international/English tracks for the vibe case (e.g. France + Sad → English acoustic).
+  // Unmapped regions (US/GB/…) fall through to the generic genre+market+year search.
+  const code = filter?.country?.toUpperCase();
+  const keyword = code ? COUNTRY_KEYWORD[code] : undefined;
+  if (filter && code && keyword) return localPool(token, keyword, code, filter, free, yearSuffix);
 
-  // No genre/mood (and no usable local genre) → a random genre keeps variety.
   if (used.length === 0) used.push(pick(TAXONOMY.MUSIC.genres).toLowerCase());
 
-  // Blend the (one or two) tag pools so a genre + mood request draws from both.
+  // Blend the (one or two) tag pools so a genre + mood request draws from both, scoped by the
+  // decade (year:) and the region (market) when present.
   const pools = await Promise.all(used.map((t) => moodPool(token, t, yearSuffix, market)));
   const items = dedupeTracks(pools.flat());
   // Last resort if the tag searches returned nothing (e.g. an unknown genre tag).
