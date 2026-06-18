@@ -89,7 +89,7 @@ export function ResultScreen({ mode, filter }: { mode: Mode; filter: SuggestionF
   });
 
   return (
-    <div className="flex flex-1 flex-col px-5 pt-3 sm:px-6 sm:pt-4">
+    <div className="flex flex-1 flex-col px-5 pb-6 pt-3 sm:px-6 sm:pb-8 sm:pt-4">
       <ScreenHeader title="Your pick" close />
 
       {loading && !suggestion ? (

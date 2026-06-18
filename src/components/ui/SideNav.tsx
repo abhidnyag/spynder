@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "./Icon";
+import { Logo } from "./Logo";
 import { NAV_ITEMS } from "./BottomNav";
 
 /**
@@ -15,12 +16,10 @@ export function SideNav() {
   return (
     <nav
       aria-label="Primary"
-      className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-1 border-r border-line bg-surface px-3 py-5 lg:flex"
+      className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-1 border-r border-line bg-surface/75 px-3 py-5 backdrop-blur lg:flex"
     >
       <div className="mb-4 flex items-center gap-2 px-3">
-        <span className="grid size-8 place-items-center rounded-lg bg-accent/15 text-accent">
-          <Icon name="dice" size={18} />
-        </span>
+        <Logo size={32} className="rounded-lg" />
         <span className="text-lg font-bold">Spynder</span>
       </div>
       {NAV_ITEMS.map(({ href, label, icon }) => {
