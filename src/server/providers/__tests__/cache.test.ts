@@ -74,3 +74,31 @@ describe("pickUnseen — no repeat until the pool is exhausted", () => {
     expect(new Set(seen).size).toBe(3);
   });
 });
+
+describe("cachedPool — does not cache an empty (transient-failure) pool", () => {
+  it("re-runs produce() after an empty result instead of caching it for the TTL", async () => {
+    let calls = 0;
+    // First call returns [] (e.g. a Spotify 429 rate-limit), then the API recovers.
+    const produce = async () => {
+      calls += 1;
+      return calls === 1 ? [] : [1, 2, 3];
+    };
+
+    const first = await cachedPool("ek", produce);
+    expect(first).toEqual([]); // empty result still returned to the caller
+    const second = await cachedPool("ek", produce);
+    expect(second).toEqual([1, 2, 3]); // NOT served the cached [] — produce() ran again and recovered
+    expect(calls).toBe(2);
+  });
+
+  it("caches a non-empty pool as normal (produce runs once)", async () => {
+    let calls = 0;
+    const produce = async () => {
+      calls += 1;
+      return [1, 2, 3];
+    };
+    await cachedPool("nk", produce);
+    await cachedPool("nk", produce);
+    expect(calls).toBe(1); // second call served from cache
+  });
+});

@@ -128,6 +128,20 @@ export function genreFromText(text: string): string | null {
   return Object.entries(MUSIC_GENRE_WORDS).find(([w]) => t.includes(w))?.[1] ?? null;
 }
 
+// Filler words in a typed description that shouldn't narrow the theme search ("rainy night songs"
+// → "rainy night"). Kept small — only words that add no musical meaning.
+const QUERY_STOPWORDS = new Set([
+  "songs", "song", "music", "track", "tracks", "playlist", "vibe", "vibes", "mood", "moods", "type",
+  "some", "any", "the", "a", "an", "for", "and", "of", "to", "with", "that", "this", "want", "feel",
+  "give", "play", "something", "like", "kind", "sort",
+]);
+
+/** Salient words of a free-text description (filler dropped) — used to search the description as a
+ *  theme, e.g. "rainy morning songs" → ["rainy","morning"]. Empty when it's all filler. */
+export function describeWords(text: string): string[] {
+  return [...new Set(text.toLowerCase().split(/[\s,]+/).filter((w) => w.length > 2 && !QUERY_STOPWORDS.has(w)))];
+}
+
 // Countries that get a local-language anchor: a free-text scene KEYWORD searched in that country's
 // market (NOT a `genre:"..."` operator, which returns obscure long-tail and can't be language-
 // scoped). Verified against the live Spotify API to return popular, decade-correct, local-language
@@ -210,21 +224,36 @@ async function localPool(
   keyword: string,
   market: string,
   filter: SuggestionFilter,
-  free: string,
   yearSuffix: string,
 ): Promise<SpotifyTrack[]> {
-  // Refine by the user's own chip words ("sad", "rock"), falling back to a mood/genre word mapped
-  // from free text when no chip was picked.
+  // Refine by the user's chip words ("sad", "rock") plus the description's mapped genre/MOOD TAG
+  // word — NOT the description's raw words. Appending raw English description words to a non-
+  // English keyword pulls English tracks and breaks the language anchor ("j-pop rainy night" /
+  // "j-pop chill study" returned English songs); a single mapped tag ("chill"/"acoustic") keeps
+  // the spin local. The keyword carries the language, so the mood just narrows within it.
   const refineWords = [...(filter.genres ?? []), ...(filter.vibes ?? [])].map((s) => s.toLowerCase());
-  if (refineWords.length === 0 && free) {
-    const word = genreFromText(free) ?? vibeGenreTag(free);
+  const desc = filter.query?.trim();
+  if (desc) {
+    const word = genreFromText(desc) ?? vibeGenreTag(desc);
     if (word) refineWords.push(word);
   }
   const refine = refineWords.length ? ` ${[...new Set(refineWords)].join(" ")}` : "";
 
+  // Free-text search ranks tracks whose NAME literally contains the keyword highly, so a short
+  // scene keyword surfaces junk titled after it — "j-pop"/"k-pop"/"bollywood" each returned ~⅓
+  // tracks literally named "J-POP"/"K-POP"/"Bollywood" (e.g. Travis Scott's "K-POP"). Real local
+  // songs have native-language names, so dropping name-contains-keyword removes the junk without
+  // losing them. Normalised (no spaces/hyphens/case) so "J POP"/"J-Pop"/"jpop" all match.
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const kw = norm(keyword);
+  const clean = (rows: SpotifyTrack[]) => {
+    const kept = rows.filter((t) => !norm(t.name).includes(kw));
+    return kept.length ? kept : rows; // keep the raw pool rather than dead-end if all matched
+  };
+
   // `${keyword}${refine}${yearSuffix}` e.g. `bollywood sad year:2010-2019` — plain text, NOT a
   // `genre:` operator (which returns obscure long-tail and breaks popularity ordering).
-  const pool = (suffix: string) => pagedSearch(token, `${keyword}${suffix}`, market, POOL_PAGES);
+  const pool = async (suffix: string) => clean(await pagedSearch(token, `${keyword}${suffix}`, market, POOL_PAGES));
 
   // Try most-specific first, then relax: drop the vibe (keep the decade), then the decade.
   const tiers = [`${refine}${yearSuffix}`, yearSuffix, refine, ""].filter((v, i, a) => a.indexOf(v) === i);
@@ -238,10 +267,11 @@ async function localPool(
 /**
  * Fetch a pool of candidate tracks for the filter (cached per query).
  *
- * The filter is resolved entirely to genre/mood **tags** searched via
- * `genre:"..."` — the raw descriptive text is *never* sent as keywords, because
- * Spotify matches free text against track/artist/album *names*, which surfaced
- * songs whose title contained the words rather than songs of that genre/mood.
+ * Genre/vibe **chips** resolve to `genre:"..."` tags (a chip is a precise genre/mood). A typed
+ * **description**, by contrast, is searched as free text — Spotify's catalogue is full of tracks
+ * and albums named for moods/themes ("rainy night", "summer vibes", "road trip"), so a direct
+ * search returns thematically-relevant picks that no fixed tag captures. Any genre/mood word in
+ * the description still also maps to a tag, and the two pools are blended.
  */
 async function searchPool(token: string, filter?: SuggestionFilter | null): Promise<SpotifyTrack[]> {
   const free = [...(filter?.vibes ?? []), filter?.query].filter(Boolean).join(" ").trim();
@@ -249,13 +279,12 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   const tags: string[] = [];
   if (filter?.genres?.length) tags.push(pick(filter.genres).toLowerCase());
   if (free) {
-    const textGenre = genreFromText(free); // a genre named in the description
+    const textGenre = genreFromText(free); // a genre named in a chip/description
     if (textGenre) tags.push(textGenre);
-    const mood = vibeGenreTag(free); // a mood named in the description
+    const mood = vibeGenreTag(free); // a mood named in a chip/description
     if (mood) tags.push(mood);
   }
-  // De-dupe, cap at two tags to keep relevance, and never dead-end on a fully
-  // unmappable description: fall back to a random genre rather than title-matching.
+  // De-dupe, cap at two tags to keep relevance.
   const used = [...new Set(tags)].slice(0, 2);
 
   // Decade → Spotify `year:` range (music has no rating, so minRating is ignored).
@@ -269,16 +298,27 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   // Unmapped regions (US/GB/…) fall through to the generic genre+market+year search.
   const code = filter?.country?.toUpperCase();
   const keyword = code ? COUNTRY_KEYWORD[code] : undefined;
-  if (filter && code && keyword) return localPool(token, keyword, code, filter, free, yearSuffix);
+  if (filter && code && keyword) return localPool(token, keyword, code, filter, yearSuffix);
 
-  if (used.length === 0) used.push(pick(TAXONOMY.MUSIC.genres).toLowerCase());
+  // Genre/mood tag pools (a genre chip, plus any genre/mood word mapped from the vibes/description),
+  // scoped by the decade and region.
+  const tagPools = used.length
+    ? dedupeTracks((await Promise.all(used.map((t) => moodPool(token, t, yearSuffix, market)))).flat())
+    : [];
 
-  // Blend the (one or two) tag pools so a genre + mood request draws from both, scoped by the
-  // decade (year:) and the region (market) when present.
-  const pools = await Promise.all(used.map((t) => moodPool(token, t, yearSuffix, market)));
-  const items = dedupeTracks(pools.flat());
-  // Last resort if the tag searches returned nothing (e.g. an unknown genre tag).
-  return items.length ? items : searchTracks(token, `${used.join(" ")}${yearSuffix}`, 0, market);
+  // A typed description is ALSO searched directly as free text (theme matching) — its salient
+  // words only ("rainy morning songs" → "rainy morning"), scoped by the decade. Blended with the
+  // tag pools so a description + genre chip draws from both. Capped at 2 pages: it runs ON TOP of
+  // the tag pools, and the shared Spotify client-credentials quota is easy to exhaust (429s then
+  // empty every pool) — 2 pages (~20) is plenty of theme variety while keeping the burst small.
+  const desc = filter?.query ? describeWords(filter.query).join(" ") : "";
+  const descPool = desc ? await pagedSearch(token, `${desc}${yearSuffix}`, market, 2) : [];
+
+  let items = dedupeTracks([...tagPools, ...descPool]);
+  // Nothing resolved (no chips, and no usable description) → a random genre keeps variety.
+  if (items.length === 0) items = await moodPool(token, pick(TAXONOMY.MUSIC.genres).toLowerCase(), yearSuffix, market);
+  // Last resort if even that returned nothing.
+  return items.length ? items : searchTracks(token, `${desc || used.join(" ")}${yearSuffix}`, 0, market);
 }
 
 /** A random track from Spotify, narrowed by the filter when present. */

@@ -92,6 +92,12 @@ export async function cachedPool<T>(key: string | null, produce: () => Promise<T
   if (hit && hit.expires > Date.now()) return hit.value as T;
 
   const value = await produce();
+  // Never cache an EMPTY pool. An empty array is almost always a transient failure — most often a
+  // Spotify 429 (the shared client-credentials quota is exhausted), where every search returns [].
+  // Caching that would keep the spin broken for the whole TTL even after the API recovers, and a
+  // custom description would show "no suggestions" until the cache expires. Let the next attempt
+  // re-fetch instead. (Providers that genuinely have no results throw, and errors aren't cached.)
+  if (Array.isArray(value) && value.length === 0) return value;
   if (store.size >= MAX_ENTRIES) {
     store.clear(); // simple bound — pools rebuild cheaply
     servedStore.clear();

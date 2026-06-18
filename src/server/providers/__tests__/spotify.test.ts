@@ -55,7 +55,7 @@ describe("fetchTrackPreview (lazy)", () => {
 });
 
 describe("getRandomTrack — a typed vibe", () => {
-  it("uses the mood tag as a genre filter (no title-matching the free text)", async () => {
+  it("maps a description's mood word to a tag AND searches the description as free text", async () => {
     const queries: string[] = [];
     mockFetch((url) => {
       const tok = tokenRoute(url);
@@ -71,9 +71,8 @@ describe("getRandomTrack — a typed vibe", () => {
     const s = await getRandomTrack({ query: "romantic dinner jazz" });
 
     expect(s.source).toBe("spotify");
-    // Every query is a bare mood-genre filter — the descriptive words are never appended.
-    expect(queries.length).toBeGreaterThan(0);
-    expect(queries.every((q) => q === 'genre:"jazz"')).toBe(true);
+    expect(queries).toContain('genre:"jazz"'); // the mood word "jazz" still maps to a genre tag
+    expect(queries).toContain("romantic dinner jazz"); // AND the description is searched as a theme
   });
 
   it("widens a thin mood pool with sibling tags", async () => {
@@ -122,14 +121,13 @@ describe("getRandomTrack — a typed vibe", () => {
     expect(queries.some((q) => q.includes("soul") || q.includes("lounge"))).toBe(false);
   });
 
-  it("searches the genre chip as a tag and never appends the free text", async () => {
+  it("searches a genre chip as a tag and ALSO searches the description as free text", async () => {
     const queries: string[] = [];
     mockFetch((url) => {
       const tok = tokenRoute(url);
       if (tok) return tok;
       if (url.includes("/search?type=track")) {
         queries.push(decodeURIComponent(search(url).get("q") ?? ""));
-        // distinct ids per offset → a 20-track pool (≥ 15), so no sibling widening
         return jsonOk({ tracks: { items: tracks(10, `x${search(url).get("offset")}_`) } });
       }
       if (url.includes("/artists/")) return jsonOk({ genres: [] });
@@ -138,12 +136,11 @@ describe("getRandomTrack — a typed vibe", () => {
 
     await getRandomTrack({ genres: ["Jazz"], query: "smooth late night" });
 
-    // The descriptive words must never reach Spotify as keywords (that title-matched).
-    expect(queries.every((q) => q === 'genre:"jazz"')).toBe(true);
-    expect(queries.some((q) => /smooth|late|night/.test(q))).toBe(false);
+    expect(queries).toContain('genre:"jazz"'); // the genre chip → genre tag
+    expect(queries).toContain("smooth late night"); // the description → free-text theme search
   });
 
-  it("blends a genre chip and a mood from the description into both tag pools", async () => {
+  it("blends a genre chip, the mapped mood, and the description free-text search", async () => {
     const queries: string[] = [];
     mockFetch((url) => {
       const tok = tokenRoute(url);
@@ -157,12 +154,73 @@ describe("getRandomTrack — a typed vibe", () => {
       return undefined;
     });
 
-    // Rock chip + "energetic" (→ workout tag): both genre tags should be searched.
+    // Rock chip + "energetic" (→ workout tag): both genre tags, plus the free-text description.
     await getRandomTrack({ genres: ["Rock"], query: "energetic" });
 
     expect(queries).toContain('genre:"rock"');
     expect(queries).toContain('genre:"workout"');
-    expect(queries.some((q) => /energetic/.test(q))).toBe(false);
+    expect(queries).toContain("energetic"); // description also searched as free text
+  });
+
+  it("searches a free-form description as free text — NOT a random genre — with filler dropped", async () => {
+    const queries: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        queries.push(decodeURIComponent(search(url).get("q") ?? ""));
+        return jsonOk({ tracks: { items: tracks(10, `${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    // "summer vibes" maps to no genre/mood tag — it must be searched as a theme, not fall back to
+    // a random genre. "vibes" is filler → dropped.
+    await getRandomTrack({ query: "summer vibes" });
+
+    expect(queries.every((q) => q === "summer")).toBe(true);
+    expect(queries.some((q) => q.includes("genre:"))).toBe(false); // never a random genre tag
+  });
+
+  it("scopes a description's free-text search by the decade", async () => {
+    const queries: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        queries.push(decodeURIComponent(search(url).get("q") ?? ""));
+        return jsonOk({ tracks: { items: tracks(10, `${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ query: "road trip", decade: 2010 });
+
+    expect(queries.every((q) => q === "road trip year:2010-2019")).toBe(true);
+  });
+
+  it("refines a mapped country by the description's MAPPED mood tag, not its raw words (no English leak)", async () => {
+    const queries: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        queries.push(decodeURIComponent(search(url).get("q") ?? ""));
+        return jsonOk({ tracks: { items: tracks(10, `${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    // Japan + a description: the raw English words ("rainy"/"night"/"study") must NOT be appended
+    // (they pull English tracks and break the j-pop anchor); only the mapped mood tag (chill) does.
+    await getRandomTrack({ query: "rainy night study", country: "JP" });
+
+    expect(queries.every((q) => q.startsWith("j-pop"))).toBe(true); // stays in the local scene
+    expect(queries).toContain("j-pop chill"); // "rainy" → chill mood tag
+    expect(queries.some((q) => /rainy|night|study/.test(q))).toBe(false); // no raw English words
   });
 
   it("appends a year: range for a decade filter", async () => {
@@ -305,6 +363,35 @@ describe("getRandomTrack — a typed vibe", () => {
     const es = await run({ country: "ES", decade: 2000 });
     expect(es.every((c) => c.market === "ES")).toBe(true);
     expect(es.every((c) => c.q === "pop español year:2000-2009")).toBe(true);
+
+    clearCandidateCache();
+    const jp = await run({ country: "JP" }); // only-country filter → bare keyword
+    expect(jp.every((c) => c.market === "JP" && c.q === "j-pop")).toBe(true);
+
+    clearCandidateCache();
+    const it = await run({ country: "IT", decade: 2010 });
+    expect(it.every((c) => c.market === "IT" && c.q === "italian pop year:2010-2019")).toBe(true);
+
+    clearCandidateCache();
+    const cn = await run({ country: "CN" });
+    expect(cn.every((c) => c.q === "mandopop")).toBe(true); // mandopop, NOT "c-pop" (that → English)
+  });
+
+  it("drops tracks literally titled after the keyword (Japan: the 'J-POP'-named junk)", async () => {
+    const real = { ...track("real"), name: "幾億光年" }; // real J-pop (native-language name)
+    const junk = { ...track("junk"), name: "J-POP" }; // literal-title junk a free-text search ranks high
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) return jsonOk({ tracks: { items: [real, junk] } });
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    const s = await getRandomTrack({ country: "JP" });
+
+    expect(s.id).toBe("spotify:real"); // the "J-POP"-named track is filtered out
+    expect(s.title).not.toBe("J-POP");
   });
 
   it("an UNMAPPED country (US) keeps the generic genre+market+year search", async () => {
