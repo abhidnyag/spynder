@@ -593,7 +593,7 @@ function NoMatchNotice({ mode, filter }: { mode: Mode; filter: SuggestionFilter 
     filter.genres?.length && "genre",
     filter.minRating && "rating",
     filter.decade && "decade",
-    filter.country && "region",
+    filter.country && "country",
     filter.type && filter.type !== "either" && "type",
     filter.vibes?.length && "vibe",
   ].filter(Boolean) as string[];

@@ -121,7 +121,12 @@ const MUSIC_GENRE_WORDS: Record<string, string> = {
   electronic: "electronic", edm: "edm", house: "house", techno: "techno", "r&b": "r-n-b", rnb: "r-n-b",
   soul: "soul", funk: "funk", country: "country", classical: "classical", piano: "piano",
   folk: "folk", reggae: "reggae", blues: "blues", "k-pop": "k-pop", kpop: "k-pop", disco: "disco",
+  latin: "latin", latino: "latin", afrobeat: "afrobeat", afrobeats: "afrobeat", gospel: "gospel",
 };
+
+/** A genre chip → its Spotify search `genre:` seed (e.g. "R&B" → "r-n-b"); falls back to the
+ *  lowercased label, which is itself a valid seed for most genres (pop, rock, jazz, …). */
+export const genreTagForChip = (genre: string): string => MUSIC_GENRE_WORDS[genre.toLowerCase()] ?? genre.toLowerCase();
 
 export function genreFromText(text: string): string | null {
   const t = text.toLowerCase();
@@ -277,7 +282,7 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   const free = [...(filter?.vibes ?? []), filter?.query].filter(Boolean).join(" ").trim();
 
   const tags: string[] = [];
-  if (filter?.genres?.length) tags.push(pick(filter.genres).toLowerCase());
+  if (filter?.genres?.length) tags.push(genreTagForChip(pick(filter.genres)));
   if (free) {
     const textGenre = genreFromText(free); // a genre named in a chip/description
     if (textGenre) tags.push(textGenre);

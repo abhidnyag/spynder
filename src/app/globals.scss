@@ -51,6 +51,14 @@
     color: var(--ink);
     -webkit-font-smoothing: antialiased;
   }
+  /* Make native form controls (e.g. the <select> dropdown popup) and scrollbars
+     follow the active theme instead of the OS default. */
+  :root {
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
   /* Visible keyboard focus for every interactive element (pointer clicks are
      unaffected thanks to :focus-visible). Uses the active accent so it reads in
      every mode. */

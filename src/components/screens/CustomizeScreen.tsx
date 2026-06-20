@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useMode } from "@/context/ModeContext";
-import { TAXONOMY, DECADES, RATINGS, REGIONS, type Mode } from "@/lib/taxonomy";
+import { TAXONOMY, DECADES, RATINGS, COUNTRIES, type Mode } from "@/lib/taxonomy";
 import { EMPTY_DRAFT, useCustomizeDraft, type MovieType } from "@/lib/useCustomizeDraft";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
+import { Select } from "@/components/ui/Select";
 import { SuggestBox } from "@/components/ui/SuggestBox";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
@@ -77,11 +78,14 @@ export function CustomizeScreen() {
         </Section>
       )}
 
-      <Section title="Region">
-        <SingleChipGroup
-          options={REGIONS.map((r) => ({ label: r.label, value: r.code }))}
+      <Section title="Country">
+        <Select
+          label="Country"
+          hideLabel
+          options={COUNTRIES.map((c) => ({ label: c.label, value: c.code }))}
           value={country}
           onChange={(v) => patch({ country: v })}
+          placeholder="Any country"
         />
       </Section>
 
@@ -123,7 +127,7 @@ const ChipGroup = ({ options, selected, onToggle }: { options: string[]; selecte
   </div>
 );
 
-// Single-select chips (decade, rating, region): tapping the active chip clears it.
+// Single-select chips (decade, rating): tapping the active chip clears it.
 function SingleChipGroup<T extends string | number>({
   options,
   value,

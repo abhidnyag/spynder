@@ -20,8 +20,16 @@ const SUBJECTS: Record<string, string> = {
   Fantasy: "Fantasy",
   Romance: "Romance",
   Thriller: "Thriller",
+  Horror: "Horror",
+  Historical: "Historical fiction",
+  Adventure: "Adventure",
+  "Young Adult": "Young adult fiction",
+  Classics: "Classic Literature",
+  Poetry: "Poetry",
+  "Graphic Novel": "Comics and graphic novels",
   "Non-fiction": "Nonfiction",
   Biography: "Biography",
+  "Self-help": "Self-help",
 };
 
 // Region → an Open Library "nationality fiction" subject, the books analogue of the
@@ -168,7 +176,7 @@ function buildQuery(filter?: SuggestionFilter | null): string {
   // The nationality subjects are fiction-specific ("Indic fiction"), so they'd contradict a
   // non-fiction genre and return nothing — drop the country clause for Non-fiction/Biography
   // (country can't be honoured for non-fiction in Open Library's catalogue anyway).
-  const nonFiction = genreSubject === "Nonfiction" || genreSubject === "Biography";
+  const nonFiction = genreSubject === "Nonfiction" || genreSubject === "Biography" || genreSubject === "Self-help";
 
   // Genre chip + recognised description/vibe words → content `subject:` constraints (a
   // CONTENT search, not a literal title match); unknown words stay as free-text terms.
@@ -239,6 +247,8 @@ const GENRE_RULES: [RegExp, string][] = [
   [/biography|autobiograph|memoir/i, "Biography"],
   [/histor/i, "Historical"],
   [/poetry|poems/i, "Poetry"],
+  [/comics?|graphic novel/i, "Graphic Novel"],
+  [/self-?help/i, "Self-help"],
   [/young adult|juvenile|children/i, "Young Adult"],
   [/non-?fiction/i, "Non-fiction"],
   [/fiction/i, "Fiction"],
@@ -308,7 +318,7 @@ async function fetchDocs(filter?: SuggestionFilter | null): Promise<OLDoc[]> {
   // (country isn't applied there anyway).
   const nonFictionGenre = (filter?.genres ?? []).some((g) => {
     const s = SUBJECTS[g] ?? g;
-    return s === "Nonfiction" || s === "Biography";
+    return s === "Nonfiction" || s === "Biography" || s === "Self-help";
   });
   if (filter?.country && hasContent && !nonFictionGenre && all.length < 5) {
     const national = await fetchPages(buildQuery({ country: filter.country, decade: filter.decade }), sort);

@@ -20,6 +20,11 @@ const GENRE_ALIASES: Record<string, string[]> = {
   "Sci-Fi": ["Science Fiction", "Sci-Fi & Fantasy"],
   Anime: ["Animation"],
   Action: ["Action", "Action & Adventure"],
+  Adventure: ["Adventure", "Action & Adventure"],
+  Fantasy: ["Fantasy", "Sci-Fi & Fantasy"],
+  War: ["War", "War & Politics"],
+  // History/Documentary/Crime/Mystery/Family/Western/Animation all exist as exact TMDB
+  // movie genres; the few without a TV equivalent simply resolve on the movie side.
 };
 
 // LOOSE, TV-only approximations for chips TMDB's TV catalogue has no exact genre for
@@ -158,9 +163,17 @@ const VIBE_GENRE_HINTS: Record<string, string> = {
   scary: "Horror", horror: "Horror", creepy: "Horror", spooky: "Horror",
   romantic: "Romance", romance: "Romance", love: "Romance",
   sad: "Drama", emotional: "Drama", tear: "Drama", "tear-jerker": "Drama", moving: "Drama",
-  action: "Action", explosive: "Action", adventure: "Action",
+  action: "Action", explosive: "Action",
+  adventure: "Adventure", quest: "Adventure", epic: "Adventure",
   thriller: "Thriller", suspense: "Thriller", tense: "Thriller", gritty: "Thriller", "edge-of-seat": "Thriller",
   scifi: "Sci-Fi", "sci-fi": "Sci-Fi", space: "Sci-Fi", futuristic: "Sci-Fi", "mind-bending": "Sci-Fi",
+  fantasy: "Fantasy", magical: "Fantasy", magic: "Fantasy", wizards: "Fantasy", dragons: "Fantasy",
+  mystery: "Mystery", detective: "Mystery", whodunit: "Mystery", "murder mystery": "Mystery",
+  crime: "Crime", heist: "Crime", gangster: "Crime", mafia: "Crime",
+  documentary: "Documentary", documentaries: "Documentary", "true story": "Documentary",
+  historical: "History", history: "History", period: "History",
+  war: "War", wartime: "War", military: "War",
+  western: "Western", cowboy: "Western", "wild west": "Western",
   anime: "Anime",
 };
 

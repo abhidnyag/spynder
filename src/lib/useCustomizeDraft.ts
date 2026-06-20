@@ -10,7 +10,7 @@ export interface CustomizeDraft {
   query: string; // the user's free-text description
   decade: number | null; // start year of the chosen decade (e.g. 1990); null = any
   minRating: number | null; // minimum rating on the mode's scale; null = any
-  country: string | null; // ISO 3166-1 region/country code; null = any
+  country: string | null; // ISO 3166-1 country code; null = any
 }
 
 export const EMPTY_DRAFT: CustomizeDraft = { type: "either", genres: [], vibes: [], query: "", decade: null, minRating: null, country: null };
