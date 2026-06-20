@@ -59,9 +59,11 @@ export function isCacheableFilter(f?: SuggestionFilter | null): boolean {
   return Boolean(
     f &&
       ((f.genres?.length ?? 0) > 0 ||
+        (f.subgenres?.length ?? 0) > 0 ||
         (f.vibes?.length ?? 0) > 0 ||
         (f.query ?? "").trim() !== "" ||
         f.decade != null ||
+        (f.decades?.length ?? 0) > 0 ||
         f.minRating != null ||
         (f.country ?? "") !== ""),
   );
@@ -72,9 +74,13 @@ export function filterKey(mode: string, f?: SuggestionFilter | null): string {
   const norm = {
     type: f?.type ?? "",
     genres: [...(f?.genres ?? [])].sort(),
+    subgenres: [...(f?.subgenres ?? [])].sort(),
     vibes: [...(f?.vibes ?? [])].sort(),
     query: (f?.query ?? "").trim().toLowerCase(),
+    // The provider receives a single resolved `decade` per spin; `decades` is kept too so
+    // distinct multi-selections don't collide on the same key.
     decade: f?.decade ?? 0,
+    decades: [...(f?.decades ?? [])].sort((a, b) => a - b),
     minRating: f?.minRating ?? 0,
     country: f?.country ?? "",
   };

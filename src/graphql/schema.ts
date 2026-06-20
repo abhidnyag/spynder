@@ -67,9 +67,13 @@ export const typeDefs = gql`
   input SuggestionFilter {
     type: String
     genres: [String!]
+    "MUSIC sub-genre labels (e.g. Punk Rock, Synth-pop) that narrow the music spin."
+    subgenres: [String!]
     vibes: [String!]
     query: String
-    "Start year of a decade to restrict to, e.g. 1990 → 1990–1999."
+    "Start years of the decades to restrict to, e.g. [1990, 2010]. Any of them may match."
+    decades: [Int!]
+    "Deprecated single-decade form; superseded by decades. Still honoured if sent."
     decade: Int
     "Minimum rating on the mode's native scale (movies/series 0–10, books 0–5)."
     minRating: Float

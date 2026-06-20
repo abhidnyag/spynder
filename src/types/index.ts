@@ -47,9 +47,10 @@ export interface HistoryEntry {
 export interface SuggestionFilter {
   type?: string;
   genres?: string[];
+  subgenres?: string[];
   vibes?: string[];
   query?: string;
-  decade?: number;
+  decades?: number[];
   minRating?: number;
   country?: string;
 }

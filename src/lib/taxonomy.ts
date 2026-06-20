@@ -31,6 +31,264 @@ export const TAXONOMY = {
   },
 } as const;
 
+/**
+ * MUSIC sub-genres (multi-select). `seed` is the Spotify search `genre:` tag the
+ * label resolves to; an unknown label falls back to its lowercased form. Grouped by
+ * parent genre purely for display. Sub-genres are additive on top of the broad genre
+ * chips — they narrow the music spin without replacing the genre/vibe filters.
+ */
+export const SUBGENRES: { label: string; seed: string; group: string }[] = [
+  // Rock
+  { label: "Punk Rock", seed: "punk", group: "Rock" },
+  { label: "Psychedelic Rock", seed: "psych-rock", group: "Rock" },
+  { label: "Hard Rock", seed: "hard-rock", group: "Rock" },
+  { label: "Indie Rock", seed: "indie", group: "Rock" },
+  { label: "Grunge", seed: "grunge", group: "Rock" },
+  { label: "Alt Rock", seed: "alt-rock", group: "Rock" },
+  { label: "Blues Rock", seed: "blues-rock", group: "Rock" },
+  { label: "Soft Rock", seed: "soft-rock", group: "Rock" },
+  { label: "Pop Rock", seed: "pop-rock", group: "Rock" },
+  { label: "Classic Rock", seed: "classic rock", group: "Rock" },
+  { label: "Progressive Rock", seed: "progressive rock", group: "Rock" },
+  { label: "Garage Rock", seed: "garage rock", group: "Rock" },
+  { label: "Folk Rock", seed: "folk rock", group: "Rock" },
+  { label: "Post-Rock", seed: "post-rock", group: "Rock" },
+  { label: "Surf Rock", seed: "surf rock", group: "Rock" },
+  // Metal
+  { label: "Heavy Metal", seed: "metal", group: "Metal" },
+  { label: "Death Metal", seed: "death-metal", group: "Metal" },
+  { label: "Metalcore", seed: "metalcore", group: "Metal" },
+  { label: "Black Metal", seed: "black metal", group: "Metal" },
+  { label: "Thrash Metal", seed: "thrash metal", group: "Metal" },
+  { label: "Doom Metal", seed: "doom metal", group: "Metal" },
+  { label: "Power Metal", seed: "power metal", group: "Metal" },
+  { label: "Nu Metal", seed: "nu metal", group: "Metal" },
+  // Pop
+  { label: "Synth-pop", seed: "synth-pop", group: "Pop" },
+  { label: "Indie Pop", seed: "indie-pop", group: "Pop" },
+  { label: "Power Pop", seed: "power-pop", group: "Pop" },
+  { label: "Dance Pop", seed: "dance pop", group: "Pop" },
+  { label: "Electropop", seed: "electropop", group: "Pop" },
+  { label: "Dream Pop", seed: "dream pop", group: "Pop" },
+  { label: "Art Pop", seed: "art pop", group: "Pop" },
+  { label: "Hyperpop", seed: "hyperpop", group: "Pop" },
+  // Indie
+  { label: "Indie Folk", seed: "indie folk", group: "Indie" },
+  { label: "Bedroom Pop", seed: "bedroom pop", group: "Indie" },
+  { label: "Shoegaze", seed: "shoegaze", group: "Indie" },
+  { label: "Indietronica", seed: "indietronica", group: "Indie" },
+  { label: "Jangle Pop", seed: "jangle pop", group: "Indie" },
+  // Hip-Hop
+  { label: "Trap", seed: "trap", group: "Hip-Hop" },
+  { label: "Boom Bap", seed: "boom bap", group: "Hip-Hop" },
+  { label: "Drill", seed: "drill", group: "Hip-Hop" },
+  { label: "Gangsta Rap", seed: "gangster rap", group: "Hip-Hop" },
+  { label: "Conscious Hip-Hop", seed: "conscious hip hop", group: "Hip-Hop" },
+  { label: "Cloud Rap", seed: "cloud rap", group: "Hip-Hop" },
+  // R&B
+  { label: "Neo-Soul", seed: "neo soul", group: "R&B" },
+  { label: "Contemporary R&B", seed: "contemporary r&b", group: "R&B" },
+  { label: "Alternative R&B", seed: "alternative r&b", group: "R&B" },
+  { label: "New Jack Swing", seed: "new jack swing", group: "R&B" },
+  { label: "Quiet Storm", seed: "quiet storm", group: "R&B" },
+  // Punk
+  { label: "Pop Punk", seed: "pop punk", group: "Punk" },
+  { label: "Hardcore Punk", seed: "hardcore punk", group: "Punk" },
+  { label: "Post-Punk", seed: "post-punk", group: "Punk" },
+  { label: "Emo", seed: "emo", group: "Punk" },
+  { label: "Ska Punk", seed: "ska punk", group: "Punk" },
+  // Electronic
+  { label: "House", seed: "house", group: "Electronic" },
+  { label: "Deep House", seed: "deep-house", group: "Electronic" },
+  { label: "Techno", seed: "techno", group: "Electronic" },
+  { label: "Trance", seed: "trance", group: "Electronic" },
+  { label: "Dubstep", seed: "dubstep", group: "Electronic" },
+  { label: "Drum & Bass", seed: "drum-and-bass", group: "Electronic" },
+  { label: "EDM", seed: "edm", group: "Electronic" },
+  { label: "Synthwave", seed: "synthwave", group: "Electronic" },
+  { label: "Ambient", seed: "ambient", group: "Electronic" },
+  { label: "Hardstyle", seed: "hardstyle", group: "Electronic" },
+  { label: "UK Garage", seed: "uk garage", group: "Electronic" },
+  { label: "Future Bass", seed: "future bass", group: "Electronic" },
+  // Lo-fi
+  { label: "Lo-fi Hip-Hop", seed: "lo-fi hip hop", group: "Lo-fi" },
+  { label: "Chillhop", seed: "chillhop", group: "Lo-fi" },
+  { label: "Jazzhop", seed: "jazzhop", group: "Lo-fi" },
+  // Jazz
+  { label: "Bossa Nova", seed: "bossanova", group: "Jazz" },
+  { label: "Smooth Jazz", seed: "smooth jazz", group: "Jazz" },
+  { label: "Bebop", seed: "bebop", group: "Jazz" },
+  { label: "Swing", seed: "swing", group: "Jazz" },
+  { label: "Jazz Fusion", seed: "jazz fusion", group: "Jazz" },
+  { label: "Big Band", seed: "big band", group: "Jazz" },
+  // Blues
+  { label: "Delta Blues", seed: "delta blues", group: "Blues" },
+  { label: "Chicago Blues", seed: "chicago blues", group: "Blues" },
+  { label: "Electric Blues", seed: "electric blues", group: "Blues" },
+  { label: "Soul Blues", seed: "soul blues", group: "Blues" },
+  // Soul
+  { label: "Gospel", seed: "gospel", group: "Soul" },
+  { label: "Motown", seed: "motown", group: "Soul" },
+  { label: "Northern Soul", seed: "northern soul", group: "Soul" },
+  { label: "Southern Soul", seed: "southern soul", group: "Soul" },
+  // Funk
+  { label: "P-Funk", seed: "p-funk", group: "Funk" },
+  { label: "Funk Rock", seed: "funk rock", group: "Funk" },
+  { label: "Boogie", seed: "boogie", group: "Funk" },
+  // Reggae
+  { label: "Dancehall", seed: "dancehall", group: "Reggae" },
+  { label: "Dub", seed: "dub", group: "Reggae" },
+  { label: "Ska", seed: "ska", group: "Reggae" },
+  { label: "Rocksteady", seed: "rocksteady", group: "Reggae" },
+  { label: "Roots Reggae", seed: "roots reggae", group: "Reggae" },
+  // Country
+  { label: "Americana", seed: "americana", group: "Country" },
+  { label: "Outlaw Country", seed: "outlaw country", group: "Country" },
+  { label: "Country Pop", seed: "country pop", group: "Country" },
+  { label: "Honky Tonk", seed: "honky-tonk", group: "Country" },
+  { label: "Alt-Country", seed: "alt-country", group: "Country" },
+  // Folk
+  { label: "Bluegrass", seed: "bluegrass", group: "Folk" },
+  { label: "Singer-Songwriter", seed: "singer-songwriter", group: "Folk" },
+  { label: "Celtic", seed: "celtic", group: "Folk" },
+  { label: "Folk Punk", seed: "folk punk", group: "Folk" },
+  // Latin
+  { label: "Reggaeton", seed: "reggaeton", group: "Latin" },
+  { label: "Salsa", seed: "salsa", group: "Latin" },
+  { label: "Bachata", seed: "bachata", group: "Latin" },
+  { label: "Cumbia", seed: "cumbia", group: "Latin" },
+  { label: "Latin Pop", seed: "latin pop", group: "Latin" },
+  { label: "Merengue", seed: "merengue", group: "Latin" },
+  { label: "Latin Trap", seed: "latin trap", group: "Latin" },
+  // K-Pop
+  { label: "K-Indie", seed: "korean indie", group: "K-Pop" },
+  { label: "K-Ballad", seed: "korean ballad", group: "K-Pop" },
+  { label: "K-Rap", seed: "korean hip hop", group: "K-Pop" },
+  { label: "K-R&B", seed: "korean r&b", group: "K-Pop" },
+  // Classical
+  { label: "Baroque", seed: "baroque", group: "Classical" },
+  { label: "Opera", seed: "opera", group: "Classical" },
+  { label: "Orchestral", seed: "orchestral", group: "Classical" },
+  { label: "Contemporary Classical", seed: "contemporary classical", group: "Classical" },
+  { label: "Minimalism", seed: "minimalism", group: "Classical" },
+  { label: "Choral", seed: "choral", group: "Classical" },
+];
+
+/**
+ * Country-specific MUSIC sub-genres (multi-select), keyed by ISO 3166-1 code. Shown when
+ * that country is selected — independent of the broad genre chips. For the mapped local-
+ * language countries the chosen `seed` becomes the Spotify search anchor keyword (so India
+ * + "Bhangra" searches bhangra in the IN market, not the default "bollywood"); see the
+ * Spotify provider's localPool.
+ */
+export const COUNTRY_SUBGENRES: Record<string, { label: string; seed: string }[]> = {
+  IN: [
+    { label: "Bollywood", seed: "bollywood" },
+    { label: "Classical", seed: "indian classical" }, // Hindustani / Carnatic
+    { label: "Indie", seed: "indian indie" },
+    { label: "Bhangra", seed: "bhangra" },
+    { label: "Punjabi", seed: "punjabi" },
+    { label: "Sufi", seed: "sufi" },
+    { label: "Ghazal", seed: "ghazal" },
+    { label: "Carnatic", seed: "carnatic" },
+  ],
+  KR: [
+    { label: "K-Pop", seed: "k-pop" },
+    { label: "K-Indie", seed: "korean indie" },
+    { label: "K-Ballad", seed: "korean ballad" },
+    { label: "Trot", seed: "trot" },
+  ],
+  JP: [
+    { label: "J-Pop", seed: "j-pop" },
+    { label: "J-Rock", seed: "j-rock" },
+    { label: "City Pop", seed: "city pop" },
+    { label: "Anime", seed: "anime" },
+  ],
+  FR: [
+    { label: "Chanson", seed: "chanson française" },
+    { label: "French Pop", seed: "french pop" },
+    { label: "French Rap", seed: "rap français" },
+    { label: "French Touch", seed: "french touch" },
+    { label: "Yé-yé", seed: "yé-yé" },
+    { label: "Variété", seed: "variété française" },
+  ],
+  DE: [
+    { label: "Schlager", seed: "schlager" },
+    { label: "Krautrock", seed: "krautrock" },
+    { label: "German Rap", seed: "deutschrap" },
+    { label: "Neue Deutsche Welle", seed: "neue deutsche welle" },
+    { label: "German Techno", seed: "german techno" },
+  ],
+  ES: [
+    { label: "Flamenco", seed: "flamenco" },
+    { label: "Spanish Pop", seed: "pop español" },
+    { label: "Spanish Rock", seed: "rock español" },
+    { label: "Reggaeton", seed: "reggaeton" },
+    { label: "Rumba", seed: "rumba" },
+    { label: "Copla", seed: "copla" },
+  ],
+  IT: [
+    { label: "Italian Pop", seed: "italian pop" },
+    { label: "Italian Rap", seed: "rap italiano" },
+    { label: "Cantautori", seed: "cantautorato" },
+    { label: "Italo Disco", seed: "italo disco" },
+    { label: "Opera", seed: "opera" },
+  ],
+  RU: [
+    { label: "Russian Pop", seed: "russian pop" },
+    { label: "Russian Rock", seed: "russian rock" },
+    { label: "Russian Rap", seed: "russian hip hop" },
+    { label: "Estrada", seed: "estrada" },
+    { label: "Chanson", seed: "russian chanson" },
+  ],
+  CN: [
+    { label: "Mandopop", seed: "mandopop" },
+    { label: "Cantopop", seed: "cantopop" },
+    { label: "Chinese Rock", seed: "chinese rock" },
+    { label: "Chinese Indie", seed: "chinese indie" },
+    { label: "Guofeng", seed: "guofeng" },
+  ],
+  SE: [
+    { label: "Swedish Pop", seed: "swedish pop" },
+    { label: "Swedish House", seed: "swedish house" },
+    { label: "Swedish Metal", seed: "swedish metal" },
+    { label: "Swedish Indie", seed: "swedish indie" },
+    { label: "Dansband", seed: "dansband" },
+  ],
+};
+
+/** Spotify search `genre:` seed for a sub-genre label; checks global then country lists. */
+export const subgenreSeed = (label: string): string => {
+  const global = SUBGENRES.find((s) => s.label === label)?.seed;
+  if (global) return global;
+  for (const list of Object.values(COUNTRY_SUBGENRES)) {
+    const hit = list.find((s) => s.label === label)?.seed;
+    if (hit) return hit;
+  }
+  return label.toLowerCase();
+};
+
+/** Seed for a label that's a country-specific sub-genre of `code`, else undefined. */
+export const countrySubgenreSeed = (code: string, label: string): string | undefined =>
+  COUNTRY_SUBGENRES[code]?.find((s) => s.label === label)?.seed;
+
+/**
+ * The sub-genres to show for the current selection: those whose parent genre is selected,
+ * plus any country-specific ones for the selected country (country ones first). MUSIC only;
+ * empty when there's nothing relevant to show (so the section can hide).
+ */
+export function availableSubgenres(
+  mode: Mode,
+  genres: string[],
+  country?: string | null,
+): { label: string; seed: string }[] {
+  if (mode !== "MUSIC") return [];
+  const byCountry = country ? (COUNTRY_SUBGENRES[country] ?? []) : [];
+  const byGenre = SUBGENRES.filter((s) => genres.includes(s.group));
+  const seen = new Set<string>();
+  return [...byCountry, ...byGenre].filter((s) => (seen.has(s.label) ? false : seen.add(s.label)));
+}
+
 /** Decade filter (start year → that decade), newest first. Applies to every mode. */
 export const DECADES: { label: string; value: number }[] = [
   { label: "2020s", value: 2020 },

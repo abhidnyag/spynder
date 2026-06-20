@@ -7,11 +7,34 @@ import { ProviderUnavailable, withTimeout, type ExternalSuggestion } from "@/ser
 export interface SuggestionFilter {
   type?: string | null;
   genres?: string[] | null;
+  subgenres?: string[] | null;
   vibes?: string[] | null;
   query?: string | null;
+  /** Start years of the chosen decades; any of them may match. */
+  decades?: number[] | null;
+  /** Deprecated single-decade form, still honoured when sent. */
   decade?: number | null;
   minRating?: number | null;
   country?: string | null;
+}
+
+/** The decades to honour, folding the legacy single `decade` into the multi-select array. */
+export function selectedDecades(filter?: SuggestionFilter | null): number[] {
+  if (filter?.decades?.length) return filter.decades;
+  return filter?.decade != null ? [filter.decade] : [];
+}
+
+/**
+ * Collapse the decade selection to the single `decade` field the live providers read (each
+ * takes one year range). The UI stores decades in the `decades` array — even a single pick —
+ * so this must resolve for ANY non-empty selection, not just multi-select, or the year filter
+ * is silently dropped. With several decades a random one is chosen per fetch, so successive
+ * spins span the whole set. No-op only when no decade is selected.
+ */
+export function withProviderDecade(filter?: SuggestionFilter | null): SuggestionFilter | null | undefined {
+  const decades = selectedDecades(filter);
+  if (!decades.length) return filter;
+  return { ...filter, decade: decades[Math.floor(Math.random() * decades.length)] };
 }
 
 /**
@@ -92,6 +115,10 @@ const RECENT_WINDOW = 80;
 const PROVIDER_RETRIES = 2;
 // Hard ceiling on live-provider work per spin; past this we serve the seed instantly.
 const PROVIDER_BUDGET_MS = 4000;
+// Music gets a larger budget: the FIRST spin for a filter pages Spotify deep (up to ~50 batched
+// pages) to build the large unique-track pool, which takes longer than a single fetch. Subsequent
+// spins reuse the cached pool and are instant, so only that first build needs the headroom.
+const MUSIC_PROVIDER_BUDGET_MS = 8000;
 // Open Library's filtered queries are slow on a cold cache — national-genre subjects
 // (e.g. "Science fiction, Indic") can take ~7–9s — so books get a larger budget; once
 // cached the next spins are instant.
@@ -123,12 +150,17 @@ export async function getRandomSuggestion(
 ) {
   const recent = await recentlyPickedIds(prisma, mode, userId);
 
-  const fetchExternal = () =>
-    mode === "MUSIC"
-      ? getRandomTrack(filter, recent)
+  // Resolve the multi-decade filter to a single decade per fetch (random within the set),
+  // so each provider — which takes one year range — gets a concrete decade and successive
+  // re-rolls cover all the selected decades.
+  const fetchExternal = () => {
+    const f = withProviderDecade(filter);
+    return mode === "MUSIC"
+      ? getRandomTrack(f, recent)
       : mode === "BOOK"
-        ? getRandomBook(filter, recent)
-        : getRandomTitle(filter, region ?? undefined, recent);
+        ? getRandomBook(f, recent)
+        : getRandomTitle(f, region ?? undefined, recent);
+  };
 
   try {
     // Whole live attempt (initial pick + re-rolls) is time-boxed so a slow API
@@ -139,7 +171,7 @@ export async function getRandomSuggestion(
         for (let i = 0; i < PROVIDER_RETRIES && recent.has(e.id); i++) e = await fetchExternal();
         return e;
       })(),
-      mode === "BOOK" ? BOOK_PROVIDER_BUDGET_MS : PROVIDER_BUDGET_MS,
+      mode === "BOOK" ? BOOK_PROVIDER_BUDGET_MS : mode === "MUSIC" ? MUSIC_PROVIDER_BUDGET_MS : PROVIDER_BUDGET_MS,
     );
     return await persist(prisma, ext, userId);
   } catch (err) {
@@ -168,8 +200,11 @@ async function getRandomFromSeed(
     },
   });
 
+  // Any of the selected decades may match (multi-select); the legacy single `decade` is
+  // folded in by selectedDecades(). Empty → no decade constraint.
+  const decades = selectedDecades(filter);
   const inDecade = (s: Suggestion) =>
-    !filter?.decade || (s.year != null && s.year >= filter.decade && s.year <= filter.decade + 9);
+    !decades.length || (s.year != null && decades.some((d) => s.year! >= d && s.year! <= d + 9));
   const meetsRating = (s: Suggestion) => !filter?.minRating || (s.rating != null && s.rating >= filter.minRating);
 
   // Decade/rating are HARD constraints — never relaxed, or the fallback would

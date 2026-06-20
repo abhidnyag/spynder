@@ -9,12 +9,18 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
   const sp = await searchParams;
   const mode: Mode = sp.mode === "MOVIE" ? "MOVIE" : sp.mode === "BOOK" ? "BOOK" : "MUSIC";
 
+  // Comma-separated start years, e.g. "1990,2010" → [1990, 2010].
+  const decades = sp.decades
+    ? sp.decades.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+
   const filter: SuggestionFilter = {
     ...(sp.type ? { type: sp.type } : {}),
     ...(sp.genres ? { genres: sp.genres.split(",") } : {}),
+    ...(sp.subgenres ? { subgenres: sp.subgenres.split(",") } : {}),
     ...(sp.vibes ? { vibes: sp.vibes.split(",") } : {}),
     ...(sp.q ? { query: sp.q } : {}),
-    ...(sp.decade && Number(sp.decade) ? { decade: Number(sp.decade) } : {}),
+    ...(decades.length ? { decades } : {}),
     ...(sp.rating && Number(sp.rating) ? { minRating: Number(sp.rating) } : {}),
     ...(sp.country ? { country: sp.country } : {}),
   };

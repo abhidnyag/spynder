@@ -569,11 +569,12 @@ function SpinAgain({ onClick }: { onClick: () => void }) {
 /** Whether the user narrowed the spin at all (drives the no-match fallback + copy). */
 const hasActiveFilters = (f: SuggestionFilter) =>
   Boolean(
-    f.decade ||
+    f.decades?.length ||
       f.minRating ||
       f.country ||
       (f.type && f.type !== "either") ||
       f.genres?.length ||
+      f.subgenres?.length ||
       f.vibes?.length ||
       (f.query ?? "").trim(),
   );
@@ -591,8 +592,9 @@ function NoMatchNotice({ mode, filter }: { mode: Mode; filter: SuggestionFilter 
   // Name the filters actually applied, so the hint points at what to loosen.
   const applied = [
     filter.genres?.length && "genre",
+    filter.subgenres?.length && "sub-genre",
     filter.minRating && "rating",
-    filter.decade && "decade",
+    filter.decades?.length && "decade",
     filter.country && "country",
     filter.type && filter.type !== "either" && "type",
     filter.vibes?.length && "vibe",

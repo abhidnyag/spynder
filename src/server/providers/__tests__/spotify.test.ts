@@ -162,6 +162,83 @@ describe("getRandomTrack — a typed vibe", () => {
     expect(queries).toContain("energetic"); // description also searched as free text
   });
 
+  it("folds an adjacent genre into a broad genre chip so crossovers surface (Blues → also blues-rock)", async () => {
+    const queries: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        queries.push(decodeURIComponent(search(url).get("q") ?? ""));
+        return jsonOk({ tracks: { items: tracks(10, `b${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ genres: ["Blues"], country: "US" });
+
+    expect(queries).toContain('genre:"blues"'); // the chip's own genre
+    expect(queries).toContain('genre:"blues-rock"'); // adjacent genre always blended in
+  });
+
+  it("resolves a MUSIC sub-genre label to its Spotify genre seed (Punk Rock → punk)", async () => {
+    const queries: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        queries.push(decodeURIComponent(search(url).get("q") ?? ""));
+        return jsonOk({ tracks: { items: tracks(10, `p${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ subgenres: ["Punk Rock"] });
+
+    expect(queries).toContain('genre:"punk"'); // the sub-genre's seed, not its label
+  });
+
+  it("uses a country-specific sub-genre as the local-scene anchor keyword (India + Bhangra → bhangra in IN)", async () => {
+    const queries: { q: string; market: string }[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        const sp = search(url);
+        queries.push({ q: decodeURIComponent(sp.get("q") ?? ""), market: sp.get("market") ?? "" });
+        return jsonOk({ tracks: { items: tracks(10, `b${sp.get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ country: "IN", subgenres: ["Bhangra"] });
+
+    // The India default keyword is "bollywood"; the chosen sub-genre overrides it.
+    expect(queries.every((x) => x.market === "IN")).toBe(true);
+    expect(queries.some((x) => x.q.includes("bhangra"))).toBe(true);
+    expect(queries.some((x) => x.q.includes("bollywood"))).toBe(false);
+  });
+
+  it("maps the R&B genre chip to Spotify's r-n-b seed (not the literal 'r&b')", async () => {
+    const queries: string[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        queries.push(decodeURIComponent(search(url).get("q") ?? ""));
+        return jsonOk({ tracks: { items: tracks(10, `r${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ genres: ["R&B"] });
+
+    expect(queries).toContain('genre:"r-n-b"');
+  });
+
   it("searches a free-form description as free text — NOT a random genre — with filler dropped", async () => {
     const queries: string[] = [];
     mockFetch((url) => {
@@ -432,5 +509,73 @@ describe("getRandomTrack — a typed vibe", () => {
 
     expect(calls.every((q) => q === 'genre:"dance"')).toBe(true);
     expect(calls.some((q) => q.includes('"party"'))).toBe(false);
+  });
+});
+
+describe("getRandomTrack — deep paging (large unique pool)", () => {
+  it("pages deep so a filtered pool yields far more than the old ~40 unique tracks before repeating", async () => {
+    // 30 full pages (300 distinct) then the result set ends (empty page).
+    const FULL_PAGES = 30;
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        const offset = Number(search(url).get("offset"));
+        return offset / 10 < FULL_PAGES
+          ? jsonOk({ tracks: { items: tracks(10, `o${offset}_`) } }) // distinct ids per page
+          : jsonOk({ tracks: { items: [] } }); // exhausted
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    // Spin many times on the SAME filter (one cached pool) — every spin should be a NEW track
+    // until the pool is exhausted, well past the old 4-page (~40) ceiling.
+    const seen = new Set<string>();
+    for (let i = 0; i < 120; i++) seen.add((await getRandomTrack({ genres: ["Pop"] })).id);
+
+    expect(seen.size).toBeGreaterThan(100); // far beyond the old ~40-track cap
+  });
+
+  it("stops paging as soon as Spotify returns a short page — no requests past the end of results", async () => {
+    const offsets: number[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        const offset = Number(search(url).get("offset"));
+        offsets.push(offset);
+        // A short page (< SEARCH_LIMIT) lands in the first batch → paging must stop, never
+        // reaching deep into the 50-page ceiling.
+        return offset === 0
+          ? jsonOk({ tracks: { items: tracks(10, "a") } })
+          : jsonOk({ tracks: { items: tracks(3, `b${offset}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ genres: ["Pop"] });
+
+    expect(offsets.some((o) => o >= 100)).toBe(false); // never paged near the ceiling
+  });
+
+  it("stops paging when a whole batch adds no new tracks (Spotify repeating the same items)", async () => {
+    const offsets: number[] = [];
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        offsets.push(Number(search(url).get("offset")));
+        return jsonOk({ tracks: { items: tracks(10, "same") } }); // identical 10 ids every page
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    await getRandomTrack({ genres: ["Pop"] });
+
+    // First batch fills the pool; the second adds nothing new → stop. Never near the ceiling.
+    expect(offsets.length).toBeLessThanOrEqual(10);
   });
 });

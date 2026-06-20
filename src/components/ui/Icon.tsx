@@ -21,7 +21,8 @@ export type IconName =
   | "sun"
   | "moon"
   | "close"
-  | "chevron";
+  | "chevron"
+  | "check";
 
 // Minimal line icons (stroke = currentColor) carried over from the SVG mockups.
 const PATHS: Record<IconName, React.ReactNode> = {
@@ -130,6 +131,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   moon: <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />,
   close: <path d="M6 6l12 12M18 6 6 18" />,
   chevron: <path d="M9 6l6 6-6 6" />,
+  check: <path d="M5 12.5l4.5 4.5L19 7" />,
 };
 
 interface IconProps extends SVGProps<SVGSVGElement> {

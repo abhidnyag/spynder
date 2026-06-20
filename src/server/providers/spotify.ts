@@ -1,4 +1,4 @@
-import { TAXONOMY } from "@/lib/taxonomy";
+import { TAXONOMY, subgenreSeed, countrySubgenreSeed } from "@/lib/taxonomy";
 import { cachedPool, filterKey, isCacheableFilter, pickUnseen } from "./cache";
 import {
   type ExternalSuggestion,
@@ -183,32 +183,72 @@ export const SIBLING_TAGS: Record<string, string[]> = {
   party: ["dance", "edm"],
 };
 
+// Adjacent genres ALWAYS blended into a genre chip's pool (not only when thin). Some broad
+// genres are tagged very narrowly by Spotify, so the strict `genre:"..."` filter misses the
+// crossover artists users associate with them — e.g. `genre:"blues"` returns pure-blues acts
+// (B.B. King, Buddy Guy) but not blues-rock/roots crossovers, so we fold those in too.
+// (Note: an artist Spotify classifies purely as pop/rock — e.g. John Mayer — still won't appear
+// under a genre filter; the free-text "describe" box does a relevance search that does find them.)
+export const COMPANION_TAGS: Record<string, string[]> = {
+  blues: ["blues-rock"],
+  soul: ["motown"],
+  country: ["americana"],
+  funk: ["disco"],
+};
+
 const dedupeTracks = (rows: SpotifyTrack[]): SpotifyTrack[] => [...new Map(rows.map((t) => [t.id, t])).values()];
 
 /**
  * Build a track pool for a mood tag, widening with sibling tags when the tag's own
  * catalogue is thin (e.g. "study" returns only a handful) so "Spin again" keeps moving.
  */
-// Pages (of SEARCH_LIMIT each) pulled per tag. A filtered spin caches this pool
-// for ~5 min, so it must be comfortably larger than RECENT_WINDOW (15) or
-// `pickFresh` runs out of fresh picks and starts repeating. 4 pages → up to ~40.
-const POOL_PAGES = 4;
+// How deep we page a filtered query. Spotify caps search `limit` at 10 (dev mode) and the offset
+// at 1000 (offset + limit ≤ 1000), so at most ~100 pages of results exist for any query. We page
+// up to MAX_POOL_PAGES of them so a filtered pool is large enough that `pickUnseen` shows hundreds
+// of UNIQUE tracks before repeating — the old fixed 4-page (~40-track) pool repeated after ~40
+// spins. Pages are pulled in small concurrent BATCHES (not one giant parallel burst) to stay under
+// Spotify's shared client-credentials rate limit, and paging stops early the moment results run
+// out (a short page) or a batch adds nothing new, so thin filters don't waste requests.
+const MAX_POOL_PAGES = 50; // up to ~500 unique tracks per filter
+const PAGE_BATCH = 5; // pages fetched concurrently per batch
+const SPOTIFY_OFFSET_CEILING = Math.floor(1000 / SEARCH_LIMIT); // offset + limit ≤ 1000 → ≤ 100 pages
 
-/** Fetch `pages` pages of a raw search query in parallel, de-duplicated.
- *  (Spotify dev mode caps limit at 10, so variety comes from paging.) Each page is one
- *  request fired at once, so callers blending several tags cap `pages` to keep the
- *  parallel burst small — Spotify rate-limits the shared client-credentials quota. */
-async function pagedSearch(token: string, q: string, market: string, pages = POOL_PAGES): Promise<SpotifyTrack[]> {
+/** Fetch up to `maxPages` pages of a raw search query, de-duplicated, growing the pool until
+ *  Spotify runs out of matches. Fired in small concurrent batches to bound the burst — Spotify
+ *  rate-limits the shared client-credentials quota. Callers wanting only a light supplementary
+ *  pool (e.g. the description theme search blended on top of tag pools) pass a small `maxPages`. */
+async function pagedSearch(token: string, q: string, market: string, maxPages = MAX_POOL_PAGES): Promise<SpotifyTrack[]> {
   console.log(`Spotify search: "${q}" [${market}]`);
-  const results = await Promise.all(
-    Array.from({ length: pages }, (_, i) => searchTracks(token, q, i * SEARCH_LIMIT, market)),
-  );
-  return dedupeTracks(results.flat());
+  const ceiling = Math.min(maxPages, SPOTIFY_OFFSET_CEILING);
+  const byId = new Map<string, SpotifyTrack>();
+  for (let start = 0; start < ceiling; start += PAGE_BATCH) {
+    const count = Math.min(PAGE_BATCH, ceiling - start);
+    const pages = await Promise.all(
+      Array.from({ length: count }, (_, i) => searchTracks(token, q, (start + i) * SEARCH_LIMIT, market)),
+    );
+    const before = byId.size;
+    let exhausted = false;
+    for (const items of pages) {
+      for (const t of items) byId.set(t.id, t);
+      // A short page means we've reached the end of the result set (or hit a 429 that returned [],
+      // i.e. a rate-limit backoff) — either way there's nothing deeper to fetch.
+      if (items.length < SEARCH_LIMIT) exhausted = true;
+    }
+    // Stop once results run out: a short page, or a whole batch that added no new tracks (Spotify
+    // returning the same items again → no deeper variety to gain).
+    if (exhausted || byId.size === before) break;
+  }
+  return [...byId.values()];
 }
 
-async function moodPool(token: string, tag: string, suffix = "", market = "US", pages = POOL_PAGES): Promise<SpotifyTrack[]> {
+async function moodPool(token: string, tag: string, suffix = "", market = "US", pages = MAX_POOL_PAGES): Promise<SpotifyTrack[]> {
   // `suffix` carries an optional ` year:START-END` decade clause; `market` is the region.
   let pool = await pagedSearch(token, `genre:"${tag}"${suffix}`, market, pages);
+  // Always fold in adjacent genres for broad/narrowly-tagged genres (e.g. blues → blues-rock),
+  // so crossover acts surface alongside the strictly-tagged core.
+  for (const companion of COMPANION_TAGS[tag] ?? []) {
+    pool = dedupeTracks([...pool, ...(await searchTracks(token, `genre:"${companion}"${suffix}`, 0, market))]);
+  }
   for (const sibling of SIBLING_TAGS[tag] ?? []) {
     if (pool.length >= 15) break;
     pool = dedupeTracks([...pool, ...(await searchTracks(token, `genre:"${sibling}"${suffix}`, 0, market))]);
@@ -236,7 +276,13 @@ async function localPool(
   // English keyword pulls English tracks and breaks the language anchor ("j-pop rainy night" /
   // "j-pop chill study" returned English songs); a single mapped tag ("chill"/"acoustic") keeps
   // the spin local. The keyword carries the language, so the mood just narrows within it.
-  const refineWords = [...(filter.genres ?? []), ...(filter.vibes ?? [])].map((s) => s.toLowerCase());
+  // Country-specific sub-genres become the anchor keyword (handled by the caller), so they're
+  // excluded here; global sub-genres still refine within the local scene.
+  const refineWords = [
+    ...(filter.subgenres ?? []).filter((l) => !countrySubgenreSeed(market, l)).map(subgenreSeed),
+    ...(filter.genres ?? []),
+    ...(filter.vibes ?? []),
+  ].map((s) => s.toLowerCase());
   const desc = filter.query?.trim();
   if (desc) {
     const word = genreFromText(desc) ?? vibeGenreTag(desc);
@@ -258,7 +304,7 @@ async function localPool(
 
   // `${keyword}${refine}${yearSuffix}` e.g. `bollywood sad year:2010-2019` — plain text, NOT a
   // `genre:` operator (which returns obscure long-tail and breaks popularity ordering).
-  const pool = async (suffix: string) => clean(await pagedSearch(token, `${keyword}${suffix}`, market, POOL_PAGES));
+  const pool = async (suffix: string) => clean(await pagedSearch(token, `${keyword}${suffix}`, market, MAX_POOL_PAGES));
 
   // Try most-specific first, then relax: drop the vibe (keep the decade), then the decade.
   const tiers = [`${refine}${yearSuffix}`, yearSuffix, refine, ""].filter((v, i, a) => a.indexOf(v) === i);
@@ -282,6 +328,8 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   const free = [...(filter?.vibes ?? []), filter?.query].filter(Boolean).join(" ").trim();
 
   const tags: string[] = [];
+  // Sub-genres are the most specific signal, so they lead (and survive the 2-tag cap below).
+  if (filter?.subgenres?.length) tags.push(subgenreSeed(pick(filter.subgenres)));
   if (filter?.genres?.length) tags.push(genreTagForChip(pick(filter.genres)));
   if (free) {
     const textGenre = genreFromText(free); // a genre named in a chip/description
@@ -301,8 +349,11 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   // scene keyword so the spin stays local — the generic path below only sets the market, which
   // leaks international/English tracks for the vibe case (e.g. France + Sad → English acoustic).
   // Unmapped regions (US/GB/…) fall through to the generic genre+market+year search.
+  // A selected country-specific sub-genre (e.g. India → Bhangra) becomes the local-scene anchor
+  // keyword, overriding the country default (India → bollywood); else use the default keyword.
   const code = filter?.country?.toUpperCase();
-  const keyword = code ? COUNTRY_KEYWORD[code] : undefined;
+  const countrySub = code ? (filter?.subgenres ?? []).map((l) => countrySubgenreSeed(code, l)).find(Boolean) : undefined;
+  const keyword = countrySub ?? (code ? COUNTRY_KEYWORD[code] : undefined);
   if (filter && code && keyword) return localPool(token, keyword, code, filter, yearSuffix);
 
   // Genre/mood tag pools (a genre chip, plus any genre/mood word mapped from the vibes/description),
@@ -313,11 +364,13 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
 
   // A typed description is ALSO searched directly as free text (theme matching) — its salient
   // words only ("rainy morning songs" → "rainy morning"), scoped by the decade. Blended with the
-  // tag pools so a description + genre chip draws from both. Capped at 2 pages: it runs ON TOP of
-  // the tag pools, and the shared Spotify client-credentials quota is easy to exhaust (429s then
-  // empty every pool) — 2 pages (~20) is plenty of theme variety while keeping the burst small.
+  // tag pools so a description + genre chip draws from both. When it runs ON TOP of tag pools it's
+  // capped at 2 pages (~20): a light theme supplement that keeps the burst small, since the shared
+  // Spotify client-credentials quota is easy to exhaust. But when the description is the ONLY
+  // signal (no chips), it IS the pool, so we let it page deep like any other filter.
   const desc = filter?.query ? describeWords(filter.query).join(" ") : "";
-  const descPool = desc ? await pagedSearch(token, `${desc}${yearSuffix}`, market, 2) : [];
+  const descCap = used.length ? 2 : MAX_POOL_PAGES;
+  const descPool = desc ? await pagedSearch(token, `${desc}${yearSuffix}`, market, descCap) : [];
 
   let items = dedupeTracks([...tagPools, ...descPool]);
   // Nothing resolved (no chips, and no usable description) → a random genre keeps variety.

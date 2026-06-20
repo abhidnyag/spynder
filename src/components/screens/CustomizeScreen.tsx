@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMode } from "@/context/ModeContext";
-import { TAXONOMY, DECADES, RATINGS, COUNTRIES, type Mode } from "@/lib/taxonomy";
+import { TAXONOMY, DECADES, RATINGS, COUNTRIES, availableSubgenres, type Mode } from "@/lib/taxonomy";
 import { EMPTY_DRAFT, useCustomizeDraft, type MovieType } from "@/lib/useCustomizeDraft";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
@@ -20,20 +21,41 @@ export function CustomizeScreen() {
 
   // Filters persist per mode, so each tab reopens with its last selection.
   const [draft, setDraft] = useCustomizeDraft(mode);
-  const { type, genres, vibes, query, decade, minRating, country } = draft;
+  const { type, genres, subgenres, vibes, query, decades, minRating, country } = draft;
   const patch = (p: Partial<typeof draft>) => setDraft({ ...draft, ...p });
 
-  const toggle = (key: "genres" | "vibes", value: string) => {
+  // Multi-select toggle shared by the genre/sub-genre/vibe chip groups.
+  const toggle = (key: "genres" | "subgenres" | "vibes", value: string) => {
     const next = draft[key].includes(value) ? draft[key].filter((v) => v !== value) : [...draft[key], value];
-    patch(key === "genres" ? { genres: next } : { vibes: next });
+    patch({ [key]: next });
   };
+
+  const toggleDecade = (value: number) => {
+    const next = decades.includes(value) ? decades.filter((d) => d !== value) : [...decades, value];
+    patch({ decades: next });
+  };
+
+  // Sub-genres shown depend on the selected genre(s) and country (MUSIC only).
+  const subOptions = availableSubgenres(mode, genres, country);
+  const subKey = subOptions.map((s) => s.label).join("|");
+
+  // Drop any selected sub-genre that's no longer offered (its genre/country was deselected),
+  // so a hidden chip can't keep silently filtering. Keyed on the available set, not the
+  // selection, so this can't loop.
+  useEffect(() => {
+    const valid = new Set(subKey.split("|").filter(Boolean));
+    const pruned = subgenres.filter((s) => valid.has(s));
+    if (pruned.length !== subgenres.length) patch({ subgenres: pruned });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subKey]);
 
   const surprise = () => {
     const params = new URLSearchParams({ mode });
     if (genres.length) params.set("genres", genres.join(","));
+    if (mode === "MUSIC" && subgenres.length) params.set("subgenres", subgenres.join(","));
     if (vibes.length) params.set("vibes", vibes.join(","));
     if (query.trim()) params.set("q", query.trim());
-    if (decade) params.set("decade", String(decade));
+    if (decades.length) params.set("decades", decades.join(","));
     if (minRating) params.set("rating", String(minRating));
     if (country) params.set("country", country);
     if (mode === "MOVIE" && type !== "either") params.set("type", type);
@@ -64,12 +86,22 @@ export function CustomizeScreen() {
         <ChipGroup options={[...tax.genres]} selected={genres} onToggle={(v) => toggle("genres", v)} />
       </Section>
 
+      {mode === "MUSIC" && subOptions.length > 0 && (
+        <Section title="Sub-genre">
+          <ChipGroup
+            options={subOptions.map((s) => s.label)}
+            selected={subgenres}
+            onToggle={(v) => toggle("subgenres", v)}
+          />
+        </Section>
+      )}
+
       <Section title="Vibe">
         <ChipGroup options={[...tax.vibes]} selected={vibes} onToggle={(v) => toggle("vibes", v)} />
       </Section>
 
       <Section title="Decade">
-        <SingleChipGroup options={DECADES} value={decade} onChange={(v) => patch({ decade: v })} />
+        <MultiChipGroup options={DECADES} selected={decades} onToggle={toggleDecade} />
       </Section>
 
       {RATINGS[mode].length > 0 && (
@@ -127,7 +159,26 @@ const ChipGroup = ({ options, selected, onToggle }: { options: string[]; selecte
   </div>
 );
 
-// Single-select chips (decade, rating): tapping the active chip clears it.
+// Multi-select chips for {label, value} options (decade): tapping toggles membership.
+function MultiChipGroup<T extends string | number>({
+  options,
+  selected,
+  onToggle,
+}: {
+  options: { label: string; value: T }[];
+  selected: T[];
+  onToggle: (v: T) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2.5">
+      {options.map((opt) => (
+        <Chip key={String(opt.value)} label={opt.label} selected={selected.includes(opt.value)} onClick={() => onToggle(opt.value)} />
+      ))}
+    </div>
+  );
+}
+
+// Single-select chips (rating): tapping the active chip clears it.
 function SingleChipGroup<T extends string | number>({
   options,
   value,

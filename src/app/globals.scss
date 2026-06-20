@@ -87,6 +87,28 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+  /* Slim, theme-tinted scrollbar for in-app scroll areas (e.g. the Select popup). */
+  .scroll-themed {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+  .scroll-themed::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-themed::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scroll-themed::-webkit-scrollbar-thumb {
+    background: var(--line);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .scroll-themed:hover::-webkit-scrollbar-thumb {
+    background: var(--faint);
+    background-clip: padding-box;
+  }
 }
 
 @layer components {
