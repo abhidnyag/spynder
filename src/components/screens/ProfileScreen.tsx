@@ -170,14 +170,17 @@ function AuthForms({ initialResetToken }: { initialResetToken?: string }) {
       </div>
 
       <form onSubmit={submit} noValidate className="mt-5 space-y-3">
-        {tab === "register" && <Field label="Name (optional)" value={name} onChange={setName} autoComplete="name" />}
-        <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" required />
+        {tab === "register" && (
+          <Field label="Name (optional)" value={name} onChange={setName} autoComplete="name" placeholder="e.g. Alex Doe" />
+        )}
+        <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@example.com" required />
         <Field
           label="Password"
           type="password"
           value={password}
           onChange={setPassword}
           autoComplete={tab === "login" ? "current-password" : "new-password"}
+          placeholder={tab === "login" ? "Enter your password" : "Create a password"}
           required
         />
         {tab === "register" && (
@@ -190,6 +193,7 @@ function AuthForms({ initialResetToken }: { initialResetToken?: string }) {
             value={confirm}
             onChange={setConfirm}
             autoComplete="new-password"
+            placeholder="Re-enter your password"
             required
           />
         )}
@@ -285,7 +289,7 @@ function ResetForm({
 
       {step === 1 ? (
         <form onSubmit={sendLink} noValidate className="mt-5 space-y-3">
-          <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" required />
+          <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@example.com" required />
           {error && <p role="alert" className="text-[13px] text-[#e57373]">{error}</p>}
           <Button type="submit" disabled={busy} className="mt-2">
             {busy ? "Please wait…" : "Send reset link"}
@@ -294,10 +298,10 @@ function ResetForm({
       ) : (
         <form onSubmit={submitReset} noValidate className="mt-5 space-y-3">
           {info && <p role="status" className="text-[13px] text-accent">{info}</p>}
-          <Field label="Reset token" value={token} onChange={setToken} required />
-          <Field label="New password" type="password" value={password} onChange={setPassword} autoComplete="new-password" required />
+          <Field label="Reset token" value={token} onChange={setToken} placeholder="Paste your reset token" required />
+          <Field label="New password" type="password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="Choose a new password" required />
           <p className="text-[11px] text-faint">At least 8 characters, including one special character (e.g. !@#$).</p>
-          <Field label="Confirm password" type="password" value={confirm} onChange={setConfirm} autoComplete="new-password" required />
+          <Field label="Confirm password" type="password" value={confirm} onChange={setConfirm} autoComplete="new-password" placeholder="Re-enter your new password" required />
           {error && <p role="alert" className="text-[13px] text-[#e57373]">{error}</p>}
           <Button type="submit" disabled={busy} className="mt-2">
             {busy ? "Please wait…" : "Update password"}
@@ -319,6 +323,7 @@ function Field({
   type = "text",
   autoComplete,
   required,
+  placeholder,
 }: {
   label: string;
   value: string;
@@ -326,6 +331,7 @@ function Field({
   type?: string;
   autoComplete?: string;
   required?: boolean;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -335,8 +341,9 @@ function Field({
         value={value}
         required={required}
         autoComplete={autoComplete}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:border-accent"
+        className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent placeholder:text-faint"
       />
     </label>
   );
