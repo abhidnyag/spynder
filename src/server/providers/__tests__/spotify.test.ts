@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchTrackPreview, getRandomTrack, SIBLING_TAGS, vibeGenreTag } from "../spotify";
+import { clearRateLimit, fetchTrackPreview, getRandomTrack, SIBLING_TAGS, vibeGenreTag } from "../spotify";
 import { clearCandidateCache } from "../cache";
 import { jsonOk, mockFetch } from "./fetchMock";
 
@@ -24,6 +24,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   clearCandidateCache();
+  clearRateLimit(); // close the rate-limit breaker so a tripped 429 doesn't leak into the next test
 });
 
 describe("vibeGenreTag", () => {
@@ -577,5 +578,48 @@ describe("getRandomTrack — deep paging (large unique pool)", () => {
 
     // First batch fills the pool; the second adds nothing new → stop. Never near the ceiling.
     expect(offsets.length).toBeLessThanOrEqual(10);
+  });
+});
+
+describe("getRandomTrack — rate-limit circuit breaker (429)", () => {
+  it("trips on a 429, then makes NO further API calls while open, and resumes once closed", async () => {
+    let searchCalls = 0;
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        searchCalls += 1;
+        return { ok: false, status: 429, headers: { "retry-after": "120" }, json: { tracks: { items: [] } } };
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    // First spin: the burst hits a 429, trips the breaker, and falls back (empty pool → throws).
+    await expect(getRandomTrack({ genres: ["Pop"] })).rejects.toThrow();
+    const afterFirst = searchCalls;
+    expect(afterFirst).toBeGreaterThan(0);
+
+    // Second spin (a DIFFERENT filter, so not merely a cache hit): breaker open → zero new calls.
+    await expect(getRandomTrack({ genres: ["Rock"] })).rejects.toThrow();
+    expect(searchCalls).toBe(afterFirst);
+
+    // Once the breaker is closed (Retry-After elapsed), Spotify is called again and the spin works.
+    clearRateLimit();
+    clearCandidateCache(); // drop the briefly-cached empty pools from the throttle
+    mockFetch((url) => {
+      const tok = tokenRoute(url);
+      if (tok) return tok;
+      if (url.includes("/search?type=track")) {
+        searchCalls += 1;
+        return jsonOk({ tracks: { items: tracks(10, `r${search(url).get("offset")}_`) } });
+      }
+      if (url.includes("/artists/")) return jsonOk({ genres: [] });
+      return undefined;
+    });
+
+    const s = await getRandomTrack({ genres: ["Jazz"] });
+    expect(s.source).toBe("spotify");
+    expect(searchCalls).toBeGreaterThan(afterFirst);
   });
 });

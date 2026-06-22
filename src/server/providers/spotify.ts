@@ -71,17 +71,54 @@ const auth = (token: string) => ({ headers: { Authorization: `Bearer ${token}` }
 // Spotify caps search `limit` at 10 for apps in development mode; higher values 400.
 const SEARCH_LIMIT = 10;
 
+// --- Rate-limit circuit breaker -------------------------------------------------------------
+// The client-credentials quota is shared app-wide, and a filtered spin's first build is a burst of
+// many search calls — so a 429 is easy to hit. When one lands, we OPEN the breaker until the
+// Retry-After window passes: while open, `searchTracks` returns [] without touching the network, so
+// the rest of this spin (and the next few) fall back to the seed pick fast and cheaply instead of
+// piling more requests onto an active throttle and deepening it.
+let rateLimitedUntil = 0;
+const RATE_LIMIT_FALLBACK_MS = 30_000; // assumed cool-off when no Retry-After header is sent
+const RATE_LIMIT_MAX_MS = 5 * 60_000; // cap a (possibly hours-long) Retry-After so music recovers
+// How long to briefly cache an empty pool while rate-limited (so "Spin again" doesn't re-run the
+// throttled search every spin); shorter than the breaker window, so it self-heals soon after.
+const RATE_LIMITED_EMPTY_TTL_MS = 30_000;
+
+/** Whether the Spotify breaker is currently open (a recent 429 hasn't cooled off yet). */
+export function isRateLimited(): boolean {
+  return Date.now() < rateLimitedUntil;
+}
+
+/** Open the breaker, honouring `Retry-After` (seconds) when present, capped to a sane maximum. */
+function tripRateLimit(retryAfterSeconds: number | null): void {
+  const ms = Math.min(
+    retryAfterSeconds && retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : RATE_LIMIT_FALLBACK_MS,
+    RATE_LIMIT_MAX_MS,
+  );
+  rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + ms);
+}
+
+/** Test helper — close the breaker between cases so a tripped 429 doesn't leak across tests. */
+export function clearRateLimit(): void {
+  rateLimitedUntil = 0;
+}
+
 async function searchTracks(token: string, q: string, offset: number, market = "US"): Promise<SpotifyTrack[]> {
+  // Breaker open → don't add to an active throttle; the empty result flows through to a fast
+  // seed fallback (or a briefly-cached empty pool — see getRandomTrack).
+  if (isRateLimited()) return [];
   const res = await fetch(
     `${API}/search?type=track&market=${market}&limit=${SEARCH_LIMIT}&offset=${offset}&q=${encodeURIComponent(q)}`,
     { ...auth(token), signal: timeoutSignal() },
   );
-  // Rate limited: the client-credentials quota is shared app-wide and Spotify's
-  // Retry-After can be very long (hours), so retrying would only blow the spin budget.
-  // Log it — an empty pool from a 429 is a throttle, NOT "no music for this filter",
-  // and silently swallowing it made country+decade spins look broken (they dead-ended
-  // to the seed pick, which returns nothing for a country filter).
+  // Rate limited: the client-credentials quota is shared app-wide and Spotify's Retry-After can be
+  // very long (hours). Trip the breaker (honouring Retry-After) so the rest of this spin — and the
+  // next few — stop hitting the API instead of retrying into the throttle. An empty pool from a 429
+  // is a throttle, NOT "no music for this filter" (silently swallowing it made country+decade spins
+  // dead-end to the seed pick, which returns nothing for a country filter).
   if (res.status === 429) {
+    const retryAfter = Number(res.headers.get("retry-after"));
+    tripRateLimit(Number.isFinite(retryAfter) ? retryAfter : null);
     console.warn(`[spotify] rate limited (429) on "${q}" [${market}] — retry-after ${res.headers.get("retry-after") ?? "?"}s`);
     return [];
   }
@@ -204,13 +241,17 @@ const dedupeTracks = (rows: SpotifyTrack[]): SpotifyTrack[] => [...new Map(rows.
  */
 // How deep we page a filtered query. Spotify caps search `limit` at 10 (dev mode) and the offset
 // at 1000 (offset + limit ≤ 1000), so at most ~100 pages of results exist for any query. We page
-// up to MAX_POOL_PAGES of them so a filtered pool is large enough that `pickUnseen` shows hundreds
-// of UNIQUE tracks before repeating — the old fixed 4-page (~40-track) pool repeated after ~40
-// spins. Pages are pulled in small concurrent BATCHES (not one giant parallel burst) to stay under
-// Spotify's shared client-credentials rate limit, and paging stops early the moment results run
-// out (a short page) or a batch adds nothing new, so thin filters don't waste requests.
-const MAX_POOL_PAGES = 50; // up to ~500 unique tracks per filter
-const PAGE_BATCH = 5; // pages fetched concurrently per batch
+// up to MAX_POOL_PAGES of them so a filtered pool is large enough that `pickUnseen` shows many
+// UNIQUE tracks before repeating. This only needs to exceed the recent-window (~80) by a healthy
+// margin — ~150 tracks does that — so we keep it modest: the FIRST build of every distinct filter
+// is a burst of requests against the SHARED client-credentials quota, and a deeper pool (the old
+// 50 pages ≈ 500 tracks) multiplied that burst ~3× and was the main cause of 429 rate-limiting.
+// Pages are pulled in small concurrent BATCHES (not one parallel burst), and paging stops early the
+// moment results run out (a short page) or a batch adds nothing new, so thin filters don't waste
+// requests. (Raising the dev-mode quota — moving the Spotify app to production — lifts SEARCH_LIMIT
+// to 50, so the same pool would need ~5× fewer pages.)
+const MAX_POOL_PAGES = 15; // ~150 unique tracks per filter — comfortably above the recent window
+const PAGE_BATCH = 3; // pages fetched concurrently per batch (small → low peak burst)
 const SPOTIFY_OFFSET_CEILING = Math.floor(1000 / SEARCH_LIMIT); // offset + limit ≤ 1000 → ≤ 100 pages
 
 /** Fetch up to `maxPages` pages of a raw search query, de-duplicated, growing the pool until
@@ -357,10 +398,12 @@ async function searchPool(token: string, filter?: SuggestionFilter | null): Prom
   if (filter && code && keyword) return localPool(token, keyword, code, filter, yearSuffix);
 
   // Genre/mood tag pools (a genre chip, plus any genre/mood word mapped from the vibes/description),
-  // scoped by the decade and region.
-  const tagPools = used.length
-    ? dedupeTracks((await Promise.all(used.map((t) => moodPool(token, t, yearSuffix, market)))).flat())
-    : [];
+  // scoped by the decade and region. Fetched SEQUENTIALLY (not Promise.all) so two deep pagings are
+  // never in flight at once — that caps the concurrent burst on Spotify's shared client-credentials
+  // quota at a single pagedSearch batch (PAGE_BATCH), the other half of the rate-limit fix.
+  const collectedTags: SpotifyTrack[] = [];
+  for (const t of used) collectedTags.push(...(await moodPool(token, t, yearSuffix, market)));
+  const tagPools = dedupeTracks(collectedTags);
 
   // A typed description is ALSO searched directly as free text (theme matching) — its salient
   // words only ("rainy morning songs" → "rainy morning"), scoped by the decade. Blended with the
@@ -386,16 +429,29 @@ export async function getRandomTrack(
 ): Promise<ExternalSuggestion> {
   const token = await getToken();
   const key = isCacheableFilter(filter) ? filterKey("MUSIC", filter) : null;
-  const items = await cachedPool(key, () => searchPool(token, filter));
-  if (items.length === 0) throw new Error("Spotify returned no tracks");
+  // If a 429 emptied the pool, the breaker is now open: cache that empty pool BRIEFLY so repeated
+  // "Spin again" doesn't re-run the (still-throttled) search every spin. A genuine empty result
+  // (no 429, breaker closed) stays uncached so it re-fetches and self-heals immediately.
+  const items = await cachedPool(
+    key,
+    () => searchPool(token, filter),
+    () => (isRateLimited() ? RATE_LIMITED_EMPTY_TTL_MS : 0),
+  );
+  if (items.length === 0) {
+    // A rate-limit throttle → fall back to the seed quietly. ProviderUnavailable is the signal the
+    // service uses for a silent fallback, so a transient 429 doesn't log an error on every spin.
+    if (isRateLimited()) throw new ProviderUnavailable("Spotify");
+    throw new Error("Spotify returned no tracks");
+  }
 
   const track = pickUnseen(key, items, (t) => `spotify:${t.id}`, exclude);
   const artistId = track.artists[0]?.id;
 
   // Only the artist-genres lookup is resolved up front. The 30-sec preview (a slow
   // embed scrape when the API omits `preview_url`) is fetched lazily by the client
-  // after the result renders, so the spin returns fast.
-  const genres = artistId
+  // after the result renders, so the spin returns fast. Skipped while rate-limited so a
+  // throttle doesn't trigger one more call (genres are optional anyway).
+  const genres = artistId && !isRateLimited()
     ? await fetchJson<{ genres: string[] }>(`${API}/artists/${artistId}`, auth(token))
         .then((a) => a.genres.slice(0, 3).map(titleCase))
         .catch(() => [] as string[]) // genres are optional

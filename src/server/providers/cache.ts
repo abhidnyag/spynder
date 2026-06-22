@@ -92,23 +92,39 @@ export function filterKey(mode: string, f?: SuggestionFilter | null): string {
  * the cache entirely. Producer errors are NOT cached, so a failed fetch still falls
  * through to the seed pick on the next attempt.
  */
-export async function cachedPool<T>(key: string | null, produce: () => Promise<T>): Promise<T> {
+export async function cachedPool<T>(
+  key: string | null,
+  produce: () => Promise<T>,
+  /**
+   * How long to cache an EMPTY pool, in ms (evaluated AFTER `produce`, so a caller can decide
+   * based on state the producer just set — e.g. its rate-limit circuit breaker). Defaults to 0:
+   * empty pools are not cached. See the empty-pool note below.
+   */
+  emptyTtlMs?: () => number,
+): Promise<T> {
   if (!key) return produce();
   const hit = store.get(key);
   if (hit && hit.expires > Date.now()) return hit.value as T;
 
   const value = await produce();
-  // Never cache an EMPTY pool. An empty array is almost always a transient failure — most often a
-  // Spotify 429 (the shared client-credentials quota is exhausted), where every search returns [].
-  // Caching that would keep the spin broken for the whole TTL even after the API recovers, and a
-  // custom description would show "no suggestions" until the cache expires. Let the next attempt
-  // re-fetch instead. (Providers that genuinely have no results throw, and errors aren't cached.)
-  if (Array.isArray(value) && value.length === 0) return value;
+  // An EMPTY pool is almost always a transient failure — most often a Spotify 429 (the shared
+  // client-credentials quota is exhausted), where every search returns []. By DEFAULT we don't
+  // cache it, so the next attempt re-fetches and self-heals the moment the API recovers (caching it
+  // for the full TTL would keep the spin broken — a custom description would show "no suggestions"
+  // until the cache expired). But a caller that KNOWS the emptiness is a rate-limit — its breaker is
+  // open — can pass `emptyTtlMs` to cache it BRIEFLY instead, so repeated "Spin again" doesn't keep
+  // re-running the (still-throttled) producer every spin. The short TTL still lets it recover soon
+  // after. (Providers that genuinely have no results throw, and errors aren't cached.)
+  let ttl = TTL_MS;
+  if (Array.isArray(value) && value.length === 0) {
+    ttl = emptyTtlMs?.() ?? 0;
+    if (ttl <= 0) return value;
+  }
   if (store.size >= MAX_ENTRIES) {
     store.clear(); // simple bound — pools rebuild cheaply
     servedStore.clear();
   }
-  store.set(key, { value, expires: Date.now() + TTL_MS });
+  store.set(key, { value, expires: Date.now() + ttl });
   // NB: the per-key served set is intentionally NOT reset here. A pool rebuilds every TTL
   // (or on a cold process) with fresh random pages; keeping the served set across rebuilds
   // means already-shown titles aren't repeated when the new pool overlaps the old (page 1 is

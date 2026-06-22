@@ -101,4 +101,31 @@ describe("cachedPool — does not cache an empty (transient-failure) pool", () =
     await cachedPool("nk", produce);
     expect(calls).toBe(1); // second call served from cache
   });
+
+  it("caches an empty pool BRIEFLY when the caller opts in (e.g. a known rate-limit)", async () => {
+    let calls = 0;
+    const produce = async () => {
+      calls += 1;
+      return [] as number[];
+    };
+    // emptyTtlMs > 0 → the empty pool is cached, so a repeated spin doesn't re-run the
+    // (still-throttled) producer. (Default — no emptyTtlMs — would re-run, per the test above.)
+    const first = await cachedPool("rl", produce, () => 30_000);
+    expect(first).toEqual([]);
+    const second = await cachedPool("rl", produce, () => 30_000);
+    expect(second).toEqual([]);
+    expect(calls).toBe(1); // NOT re-run — served from the brief empty cache
+  });
+
+  it("does not cache an empty pool when emptyTtlMs resolves to 0 (breaker closed)", async () => {
+    let calls = 0;
+    const produce = async () => {
+      calls += 1;
+      return calls === 1 ? ([] as number[]) : [1, 2, 3];
+    };
+    await cachedPool("rl0", produce, () => 0); // 0 → behave like the default (don't cache empty)
+    const second = await cachedPool("rl0", produce, () => 0);
+    expect(second).toEqual([1, 2, 3]);
+    expect(calls).toBe(2);
+  });
 });
